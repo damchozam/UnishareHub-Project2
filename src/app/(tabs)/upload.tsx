@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import {
   View,
@@ -11,7 +10,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  serverTimestamp,
+  writeBatch,
+} from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
 
@@ -22,19 +26,33 @@ const categories = [
   'Past Papers',
 ];
 
+const semesters = [
+  'Semester 1',
+  'Semester 2',
+  'Semester 3',
+  'Semester 4',
+  'Semester 5',
+  'Semester 6',
+  'Semester 7',
+  'Semester 8',
+];
+
 const allowedExtensions = [
   'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt',
 ];
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 export default function UploadScreen() {
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
+  const [semester, setSemester] = useState(semesters[0]);
   const [category, setCategory] = useState(categories[0]);
   const [description, setDescription] = useState('');
+
   const [selectedFile, setSelectedFile] =
     useState<DocumentPicker.DocumentPickerAsset | null>(null);
+
   const [uploading, setUploading] = useState(false);
 
   const chooseFile = async () => {
@@ -68,7 +86,10 @@ export default function UploadScreen() {
       }
 
       if (file.size && file.size > MAX_FILE_SIZE) {
-        Alert.alert('File too large', 'Please select a file smaller than 20 MB.');
+        Alert.alert(
+          'File too large',
+          'Please select a file smaller than 20 MB.'
+        );
         return;
       }
 
@@ -88,7 +109,10 @@ export default function UploadScreen() {
     }
 
     if (!title.trim() || !subject.trim()) {
-      Alert.alert('Missing information', 'Please enter the resource title and subject.');
+      Alert.alert(
+        'Missing information',
+        'Please enter the resource title and subject.'
+      );
       return;
     }
 
@@ -102,11 +126,18 @@ export default function UploadScreen() {
     let uploadedPath: string | null = null;
 
     try {
-      const extension = selectedFile.name.split('.').pop()?.toLowerCase() ?? '';
-      const safeFileName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const extension =
+        selectedFile.name.split('.').pop()?.toLowerCase() ?? '';
+
+      const safeFileName = selectedFile.name.replace(
+        /[^a-zA-Z0-9._-]/g,
+        '_'
+      );
+
       const storagePath = `${user.uid}/${Date.now()}-${safeFileName}`;
 
       const response = await fetch(selectedFile.uri);
+
       if (!response.ok) {
         throw new Error('Could not read the selected file.');
       }
@@ -123,22 +154,30 @@ export default function UploadScreen() {
           upsert: false,
         });
 
-        if (storageError) {
-          console.log('SUPABASE UPLOAD ERROR:', {
-            message: storageError.message,
-            name: storageError.name,
-            statusCode: storageError.statusCode,
-          });
-          
-          throw storageError;
-        }
+      if (storageError) {
+        console.log('SUPABASE UPLOAD ERROR:', {
+          message: storageError.message,
+          name: storageError.name,
+          statusCode: storageError.statusCode,
+        });
 
+        throw storageError;
+      }
 
       uploadedPath = storagePath;
 
-      await addDoc(collection(db, 'resources'), {
+      // Create both Firestore documents together.
+      const resourceRef = doc(collection(db, 'resources'));
+      const notificationRef = doc(collection(db, 'notifications'));
+
+      const uploaderName = user.displayName || 'Student';
+
+      const batch = writeBatch(db);
+
+      batch.set(resourceRef, {
         title: title.trim(),
         subject: subject.trim(),
+        semester,
         category,
         description: description.trim(),
         fileName: selectedFile.name,
@@ -146,14 +185,27 @@ export default function UploadScreen() {
         fileSize: selectedFile.size ?? null,
         storagePath,
         createdBy: user.uid,
-        uploaderName: user.displayName || 'Student',
+        uploaderName,
         createdAt: serverTimestamp(),
       });
+
+      batch.set(notificationRef, {
+        resourceId: resourceRef.id,
+        title: title.trim(),
+        subject: subject.trim(),
+        category,
+        uploaderName,
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+      });
+
+      await batch.commit();
 
       Alert.alert('Success', 'Your resource has been published.');
 
       setTitle('');
       setSubject('');
+      setSemester(semesters[0]);
       setCategory(categories[0]);
       setDescription('');
       setSelectedFile(null);
@@ -161,15 +213,17 @@ export default function UploadScreen() {
       console.error('Resource upload error:', error);
 
       if (uploadedPath) {
-        await supabase.storage
+        const { error: cleanupError } = await supabase.storage
           .from('resources')
-          .remove([uploadedPath])
-          .catch((cleanupError) => {
-            console.error('Storage cleanup error:', cleanupError);
-          });
+          .remove([uploadedPath]);
+
+        if (cleanupError) {
+          console.error('Storage cleanup error:', cleanupError);
+        }
       }
 
-      const message = error?.message || 'Something went wrong. Please try again.';
+      const message =
+        error?.message || 'Something went wrong. Please try again.';
 
       Alert.alert(
         'Upload failed',
@@ -184,19 +238,25 @@ export default function UploadScreen() {
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return 'Size unavailable';
+
     return bytes < 1024 * 1024
       ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
       <Text style={styles.heading}>Share a Resource</Text>
+
       <Text style={styles.subtitle}>
         Upload study materials to help other students.
       </Text>
 
       <Text style={styles.label}>Resource Title *</Text>
+
       <TextInput
         style={styles.input}
         placeholder="Enter resource title"
@@ -205,16 +265,42 @@ export default function UploadScreen() {
         onChangeText={setTitle}
       />
 
-      <Text style={styles.label}>Subject *</Text>
+      <Text style={styles.label}>Subject / Module *</Text>
+
       <TextInput
         style={styles.input}
-        placeholder="Enter subject name"
+        placeholder="Enter module name"
         placeholderTextColor="#888"
         value={subject}
         onChangeText={setSubject}
       />
 
+      <Text style={styles.label}>Semester *</Text>
+
+      <View style={styles.semesters}>
+        {semesters.map((item) => (
+          <Pressable
+            key={item}
+            onPress={() => setSemester(item)}
+            style={[
+              styles.semesterButton,
+              semester === item && styles.semesterSelected,
+            ]}
+          >
+            <Text
+              style={[
+                styles.semesterText,
+                semester === item && styles.semesterTextSelected,
+              ]}
+            >
+              {item.replace('Semester ', 'Sem ')}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <Text style={styles.label}>Category *</Text>
+
       <View style={styles.categories}>
         {categories.map((item) => (
           <Pressable
@@ -238,6 +324,7 @@ export default function UploadScreen() {
       </View>
 
       <Text style={styles.label}>Description</Text>
+
       <TextInput
         style={[styles.input, styles.description]}
         placeholder="Add a short description (optional)"
@@ -249,13 +336,19 @@ export default function UploadScreen() {
       />
 
       <Text style={styles.label}>Attach File *</Text>
+
       <Pressable style={styles.filePicker} onPress={chooseFile}>
         <Text style={styles.plus}>＋</Text>
+
         <Text style={styles.filePickerTitle}>Add your file</Text>
+
         <Text style={styles.filePickerHint}>
           PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX or TXT
         </Text>
-        <Text style={styles.filePickerHint}>Maximum size: 20 MB</Text>
+
+        <Text style={styles.filePickerHint}>
+          Maximum size: 20 MB
+        </Text>
       </Pressable>
 
       {selectedFile && (
@@ -264,10 +357,12 @@ export default function UploadScreen() {
             <Text style={styles.fileName} numberOfLines={2}>
               {selectedFile.name}
             </Text>
+
             <Text style={styles.fileSize}>
               {formatFileSize(selectedFile.size)}
             </Text>
           </View>
+
           <Pressable onPress={() => setSelectedFile(null)}>
             <Text style={styles.removeText}>Remove</Text>
           </Pressable>
@@ -275,7 +370,10 @@ export default function UploadScreen() {
       )}
 
       <Pressable
-        style={[styles.publishButton, uploading && styles.disabledButton]}
+        style={[
+          styles.publishButton,
+          uploading && styles.disabledButton,
+        ]}
         onPress={publishResource}
         disabled={uploading}
       >
@@ -328,6 +426,30 @@ const styles = StyleSheet.create({
   },
   description: {
     height: 95,
+  },
+  semesters: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 9,
+  },
+  semesterButton: {
+    borderWidth: 1,
+    borderColor: '#DDDDDD',
+    borderRadius: 20,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    marginBottom: 2,
+  },
+  semesterSelected: {
+    backgroundColor: '#222222',
+    borderColor: '#222222',
+  },
+  semesterText: {
+    fontSize: 12,
+    color: '#444444',
+  },
+  semesterTextSelected: {
+    color: '#FFFFFF',
   },
   categories: {
     flexDirection: 'row',

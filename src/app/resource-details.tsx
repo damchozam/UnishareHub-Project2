@@ -1,17 +1,22 @@
 
 import { useEffect, useState } from 'react';
+
 import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import {
   deleteDoc,
   doc,
@@ -19,6 +24,7 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
+
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { auth, db } from '../lib/firebase';
@@ -40,6 +46,13 @@ type Resource = {
   localUri?: string;
 };
 
+const REPORT_REASONS = [
+  'Incorrect or misleading information',
+  'Unrelated to the subject or module',
+  'Inappropriate content',
+  'Uploaded by mistake',
+];
+
 export default function ResourceDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -48,6 +61,11 @@ export default function ResourceDetailsScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState('');
+  const [reportDescription, setReportDescription] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
 
   useEffect(() => {
     console.log('RESOURCE DETAILS SCREEN OPENED. ID:', id);
@@ -251,6 +269,103 @@ export default function ResourceDetailsScreen() {
     }
   };
 
+  // Open the report form.
+  const openReportForm = () => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      Alert.alert(
+        'Login required',
+        'Please log in to report a resource.'
+      );
+      return;
+    }
+
+    if (resource?.createdBy === user.uid) {
+      Alert.alert(
+        'Cannot report your own resource',
+        'You cannot report a resource that you uploaded.'
+      );
+      return;
+    }
+
+    setSelectedReason('');
+    setReportDescription('');
+    setReportModalVisible(true);
+  };
+
+  // Submit the report directly without reading the reports collection.
+  const submitReport = async () => {
+    const user = auth.currentUser;
+
+    if (!user || !resource) {
+      Alert.alert(
+        'Login required',
+        'Please log in and try again.'
+      );
+      return;
+    }
+
+    if (resource.createdBy === user.uid) {
+      Alert.alert(
+        'Cannot report your own resource',
+        'You cannot report a resource that you uploaded.'
+      );
+      return;
+    }
+
+    if (!selectedReason) {
+      Alert.alert(
+        'Select a reason',
+        'Please choose why you are reporting this resource.'
+      );
+      return;
+    }
+
+    if (submittingReport) return;
+
+    setSubmittingReport(true);
+
+    try {
+      // A fixed document ID allows only one report per user per resource.
+      const reportId = `${resource.id}_${user.uid}`;
+      const reportRef = doc(db, 'reports', reportId);
+
+      // Do not call getDoc(reportRef).
+      // The Firestore rules intentionally prevent reading reports.
+      await setDoc(reportRef, {
+        resourceId: resource.id,
+        resourceTitle: resource.title || 'Untitled resource',
+        resourceOwner: resource.createdBy || '',
+        reportedBy: user.uid,
+        reporterName: user.displayName || 'Student',
+        reporterEmail: user.email || '',
+        reason: selectedReason,
+        description: reportDescription.trim(),
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      setReportModalVisible(false);
+      setSelectedReason('');
+      setReportDescription('');
+
+      Alert.alert(
+        'Report submitted',
+        'Thank you. Your report has been submitted for review.'
+      );
+    } catch (error: any) {
+      console.error('Submit report error:', error);
+
+      Alert.alert(
+        'Unable to submit report',
+        error?.message || 'Please try again.'
+      );
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   // Display an existing formatted size or convert bytes to KB/MB.
   const formatSize = (bytes?: number | string | null) => {
     if (bytes === undefined || bytes === null || bytes === '') {
@@ -430,10 +545,102 @@ export default function ResourceDetailsScreen() {
           </View>
         </View>
 
+        <Pressable
+          style={styles.reportButton}
+          onPress={openReportForm}
+        >
+          <Text style={styles.reportButtonText}>
+            ⚑  Report this resource
+          </Text>
+        </Pressable>
+
         <Text style={styles.footer}>
           Shared through UniShareHub
         </Text>
       </ScrollView>
+
+      <Modal
+        visible={reportModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Report Resource
+            </Text>
+
+            <Text style={styles.modalSubtitle}>
+              Why are you reporting this resource?
+            </Text>
+
+            {REPORT_REASONS.map((reason) => (
+              <Pressable
+                key={reason}
+                style={styles.reasonOption}
+                onPress={() => setSelectedReason(reason)}
+              >
+                <View style={styles.radioOuter}>
+                  {selectedReason === reason && (
+                    <View style={styles.radioInner} />
+                  )}
+                </View>
+
+                <Text style={styles.reasonText}>
+                  {reason}
+                </Text>
+              </Pressable>
+            ))}
+
+            <Text style={styles.inputLabel}>
+              Additional details (optional)
+            </Text>
+
+            <TextInput
+              style={styles.reportInput}
+              placeholder="Explain the issue if necessary..."
+              placeholderTextColor="#94A3B8"
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              value={reportDescription}
+              onChangeText={setReportDescription}
+              maxLength={500}
+            />
+
+            <Text style={styles.characterCount}>
+              {reportDescription.length}/500
+            </Text>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                style={styles.cancelButton}
+                onPress={() => setReportModalVisible(false)}
+                disabled={submittingReport}
+              >
+                <Text style={styles.cancelButtonText}>
+                  Cancel
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.submitButton}
+                onPress={submitReport}
+                disabled={submittingReport}
+              >
+                {submittingReport ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.submitButtonText}>
+                    Submit Report
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -640,10 +847,127 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
+  reportButton: {
+    marginTop: 18,
+    padding: 15,
+    borderRadius: 11,
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+  },
+  reportButtonText: {
+    color: '#B91C1C',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   footer: {
     color: '#94A3B8',
     fontSize: 11,
     textAlign: 'center',
     marginTop: 22,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 20,
+    maxHeight: '90%',
+  },
+  modalTitle: {
+    color: '#111827',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  modalSubtitle: {
+    color: '#64748B',
+    fontSize: 13,
+    marginTop: 7,
+    marginBottom: 15,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 12,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#64748B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#1A2332',
+  },
+  reasonText: {
+    flex: 1,
+    color: '#1E293B',
+    fontSize: 13,
+  },
+  inputLabel: {
+    color: '#1E293B',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  reportInput: {
+    minHeight: 90,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    padding: 12,
+    color: '#1E293B',
+    fontSize: 13,
+  },
+  characterCount: {
+    color: '#94A3B8',
+    fontSize: 11,
+    textAlign: 'right',
+    marginTop: 5,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  cancelButton: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    color: '#475569',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  submitButton: {
+    flex: 1.5,
+    minHeight: 45,
+    borderRadius: 10,
+    backgroundColor: '#1A2332',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
 });

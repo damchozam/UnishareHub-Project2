@@ -11,8 +11,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, getDocs } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+} from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
+import { useTheme } from '../../context/ThemeContext';
 import ResourceCard, { type Resource } from '../../components/ResourceCard';
 
 const categories = [
@@ -22,14 +31,250 @@ const categories = [
   { title: 'Past Papers', symbol: '▥' },
 ];
 
+function BellIcon({ color }: { color: string }) {
+  return (
+    <View style={bellStyles.container}>
+      <View style={[bellStyles.body, { borderColor: color }]} />
+      <View style={[bellStyles.base, { backgroundColor: color }]} />
+      <View style={[bellStyles.clapper, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+const bellStyles = StyleSheet.create({
+  container: {
+    width: 23,
+    height: 25,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  body: {
+    width: 17,
+    height: 17,
+    borderWidth: 2,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+    borderBottomWidth: 0,
+  },
+  base: {
+    width: 21,
+    height: 2,
+    borderRadius: 2,
+  },
+  clapper: {
+    position: 'absolute',
+    bottom: 0,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+});
+
 export default function HomeScreen() {
+  const { colors } = useTheme();
+
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      padding: 20,
+      paddingBottom: 30,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    greeting: {
+      color: colors.secondaryText,
+      fontSize: 14,
+    },
+    brand: {
+      color: colors.text,
+      fontSize: 25,
+      fontWeight: '800',
+      marginTop: 3,
+    },
+    notificationButton: {
+      width: 43,
+      height: 43,
+      borderRadius: 22,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    notificationBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -5,
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: '#DC2626',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 4,
+      borderWidth: 1.5,
+      borderColor: colors.surface,
+    },
+    notificationBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 9,
+      fontWeight: '700',
+    },
+    avatar: {
+      width: 43,
+      height: 43,
+      borderRadius: 22,
+      backgroundColor: colors.accent,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarText: {
+      color: colors.background,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    description: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginTop: 8,
+    },
+    searchBox: {
+      height: 49,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      marginTop: 24,
+      paddingHorizontal: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    searchIcon: {
+      fontSize: 24,
+      color: colors.secondaryText,
+      marginRight: 10,
+    },
+    searchPlaceholder: {
+      color: colors.mutedText,
+      fontSize: 13,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 30,
+      marginBottom: 14,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    sectionCaption: {
+      color: colors.secondaryText,
+      fontSize: 12,
+    },
+    seeAll: {
+      color: colors.accent,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    categoryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    categoryCard: {
+      width: '48%',
+      minHeight: 105,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 15,
+      justifyContent: 'center',
+    },
+    categorySymbol: {
+      color: colors.accent,
+      fontSize: 25,
+      marginBottom: 9,
+    },
+    categoryTitle: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    loader: {
+      marginTop: 35,
+    },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 22,
+      alignItems: 'center',
+    },
+    emptyIcon: {
+      width: 52,
+      height: 52,
+      borderRadius: 14,
+      backgroundColor: colors.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    emptySymbol: {
+      fontSize: 27,
+      color: colors.accent,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      marginTop: 15,
+    },
+    emptyDescription: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      textAlign: 'center',
+      lineHeight: 19,
+      marginTop: 7,
+    },
+    browseButton: {
+      marginTop: 17,
+      paddingHorizontal: 20,
+      paddingVertical: 11,
+      backgroundColor: colors.accent,
+      borderRadius: 8,
+    },
+    browseButtonText: {
+      color: colors.background,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    resourceList: {
+      gap: 11,
+    },
+  });
 
   const loadResources = useCallback(async () => {
     try {
       setLoading(true);
-
       const snapshot = await getDocs(collection(db, 'resources'));
 
       const items = snapshot.docs.map((document) => ({
@@ -59,6 +304,65 @@ export default function HomeScreen() {
     loadResources();
   }, [loadResources]);
 
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    let lastViewedTime = 0;
+    let notificationItems: any[] = [];
+
+    const updateUnreadCount = () => {
+      const unread = notificationItems.filter((item) => {
+        if (item.createdBy === user.uid) return false;
+
+        const createdTime = item.createdAt?.toMillis?.() ?? 0;
+        return createdTime > lastViewedTime;
+      });
+
+      setUnreadCount(unread.length);
+    };
+
+    const unsubscribeUser = onSnapshot(
+      doc(db, 'users', user.uid),
+      (snapshot) => {
+        const lastViewed =
+          snapshot.data()?.lastViewedNotificationsAt;
+
+        lastViewedTime = lastViewed?.toMillis?.() ?? 0;
+        updateUnreadCount();
+      },
+      (error) => {
+        console.error('Notification read-time error:', error);
+      }
+    );
+
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+
+    const unsubscribeNotifications = onSnapshot(
+      notificationsQuery,
+      (snapshot) => {
+        notificationItems = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        }));
+
+        updateUnreadCount();
+      },
+      (error) => {
+        console.error('Notification count error:', error);
+      }
+    );
+
+    return () => {
+      unsubscribeUser();
+      unsubscribeNotifications();
+    };
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -68,14 +372,32 @@ export default function HomeScreen() {
             <Text style={styles.brand}>UniShareHub</Text>
           </View>
 
-          <Pressable
-            style={styles.avatar}
-            onPress={() => router.push('/(tabs)/profile')}
-          >
-            <Text style={styles.avatarText}>
-              {(auth.currentUser?.displayName?.[0] || 'U').toUpperCase()}
-            </Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.notificationButton}
+              onPress={() => router.push('/notifications')}
+              hitSlop={10}
+            >
+              <BellIcon color={colors.accent} />
+
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.avatar}
+              onPress={() => router.push('/(tabs)/profile')}
+            >
+              <Text style={styles.avatarText}>
+                {(auth.currentUser?.displayName?.[0] || 'U').toUpperCase()}
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         <Text style={styles.description}>
@@ -125,7 +447,7 @@ export default function HomeScreen() {
         {loading ? (
           <ActivityIndicator
             size="large"
-            color="#1A2332"
+            color={colors.accent}
             style={styles.loader}
           />
         ) : resources.length === 0 ? (
@@ -155,164 +477,3 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  container: {
-    padding: 20,
-    paddingBottom: 30,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  greeting: {
-    color: '#64748B',
-    fontSize: 14,
-  },
-  brand: {
-    color: '#1A2332',
-    fontSize: 25,
-    fontWeight: '800',
-    marginTop: 3,
-  },
-  avatar: {
-    width: 43,
-    height: 43,
-    borderRadius: 22,
-    backgroundColor: '#1A2332',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  description: {
-    color: '#475569',
-    fontSize: 13,
-    marginTop: 8,
-  },
-  searchBox: {
-    height: 49,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    marginTop: 24,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    fontSize: 24,
-    color: '#64748B',
-    marginRight: 10,
-  },
-  searchPlaceholder: {
-    color: '#94A3B8',
-    fontSize: 13,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 30,
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    color: '#0F172A',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  sectionCaption: {
-    color: '#64748B',
-    fontSize: 12,
-  },
-  seeAll: {
-    color: '#1A2332',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  categoryCard: {
-    width: '48%',
-    minHeight: 105,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 15,
-    justifyContent: 'center',
-  },
-  categorySymbol: {
-    color: '#1A2332',
-    fontSize: 25,
-    marginBottom: 9,
-  },
-  categoryTitle: {
-    color: '#1A2332',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  loader: {
-    marginTop: 35,
-  },
-  emptyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 22,
-    alignItems: 'center',
-  },
-  emptyIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptySymbol: {
-    fontSize: 27,
-    color: '#1A2332',
-  },
-  emptyTitle: {
-    color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 15,
-  },
-  emptyDescription: {
-    color: '#64748B',
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 19,
-    marginTop: 7,
-  },
-  browseButton: {
-    marginTop: 17,
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    backgroundColor: '#1A2332',
-    borderRadius: 8,
-  },
-  browseButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  resourceList: {
-    gap: 11,
-  },
-});

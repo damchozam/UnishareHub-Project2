@@ -1,8 +1,7 @@
 
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
-
-const NAVY = '#1A2332';
+import { useTheme } from '../../context/ThemeContext';
 
 function TabIcon({
   symbol,
@@ -19,22 +18,27 @@ function TabIcon({
 }
 
 export default function TabLayout() {
+  const { colors } = useTheme();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: NAVY,
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.mutedText,
         tabBarStyle: {
           height: 76,
           paddingTop: 8,
           paddingBottom: 10,
-          borderTopColor: '#E2E8F0',
-          backgroundColor: '#FFFFFF',
+          borderTopColor: colors.border,
+          backgroundColor: colors.surface,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
+        },
+        sceneStyle: {
+          backgroundColor: colors.background,
         },
       }}
     >
@@ -95,6 +99,14 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <TabIcon symbol="○" color={color} />
           ),
+        }}
+      />
+
+      {/* Notifications is accessed through the bell on Home */}
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

@@ -1,6 +1,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { useTheme } from '../../context/ThemeContext';
 import ResourceCard, { type Resource } from '../../components/ResourceCard';
+
+type ResourceWithSemester = Resource & {
+  semester?: string;
+  subject?: string;
+  description?: string;
+  category?: string;
+  fileName?: string;
+  uploaderName?: string;
+};
 
 const categories = [
   'All',
@@ -24,31 +34,166 @@ const categories = [
   'Past Papers',
 ];
 
+const semesters = ['All', '1', '2', '3', '4', '5', '6', '7', '8'];
+
 export default function SearchScreen() {
+  const { colors } = useTheme();
   const params = useLocalSearchParams<{ category?: string }>();
 
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [searchText, setSearchText] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [resources, setResources] = useState<ResourceWithSemester[]>([]);
   const [loading, setLoading] = useState(true);
+  const [keyword, setKeyword] = useState('');
+  const [subject, setSubject] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(
+    params.category || 'All'
+  );
+  const [selectedSemester, setSelectedSemester] = useState('All');
+
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      padding: 20,
+      paddingBottom: 35,
+    },
+    heading: {
+      fontSize: 25,
+      fontWeight: '800',
+      color: colors.text,
+    },
+    subtitle: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginTop: 5,
+      marginBottom: 22,
+    },
+    searchInput: {
+      height: 49,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: 10,
+      paddingHorizontal: 15,
+      color: colors.text,
+      fontSize: 14,
+    },
+    filterHeading: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      marginTop: 24,
+      marginBottom: 12,
+    },
+    horizontalList: {
+      gap: 9,
+      paddingBottom: 3,
+    },
+    chip: {
+      paddingHorizontal: 15,
+      paddingVertical: 9,
+      borderRadius: 20,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    selectedChip: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    chipText: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    selectedChipText: {
+      color: colors.background,
+    },
+    subjectInput: {
+      height: 45,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: 9,
+      paddingHorizontal: 13,
+      color: colors.text,
+      fontSize: 13,
+    },
+    resultsHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 28,
+      marginBottom: 14,
+    },
+    resultsTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    resultsCount: {
+      color: colors.secondaryText,
+      fontSize: 12,
+    },
+    clearButton: {
+      alignSelf: 'flex-start',
+      marginTop: 15,
+      paddingVertical: 7,
+    },
+    clearText: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    loader: {
+      marginTop: 35,
+    },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      padding: 25,
+      alignItems: 'center',
+      marginTop: 5,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    emptyDescription: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      textAlign: 'center',
+      lineHeight: 19,
+      marginTop: 8,
+    },
+    resourceList: {
+      gap: 12,
+    },
+  });
 
   useEffect(() => {
-    if (params.category && categories.includes(params.category)) {
+    if (params.category) {
       setSelectedCategory(params.category);
-    } else {
-      setSelectedCategory('All');
     }
   }, [params.category]);
 
   useEffect(() => {
+    let active = true;
+
     const loadResources = async () => {
       try {
+        setLoading(true);
+
         const snapshot = await getDocs(collection(db, 'resources'));
 
         const items = snapshot.docs.map((document) => ({
           id: document.id,
           ...document.data(),
-        })) as Resource[];
+        })) as ResourceWithSemester[];
 
         items.sort((a, b) => {
           const timeA = a.createdAt?.toMillis?.() ?? 0;
@@ -56,7 +201,9 @@ export default function SearchScreen() {
           return timeB - timeA;
         });
 
-        setResources(items);
+        if (active) {
+          setResources(items);
+        }
       } catch (error) {
         console.error('Search resources error:', error);
         Alert.alert(
@@ -64,258 +211,205 @@ export default function SearchScreen() {
           'Please check your connection and try again.'
         );
       } finally {
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
 
     loadResources();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filteredResources = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
+    const searchText = keyword.trim().toLowerCase();
+    const subjectText = subject.trim().toLowerCase();
 
     return resources.filter((resource) => {
+      const matchesKeyword =
+        !searchText ||
+        [
+          resource.title,
+          resource.subject,
+          resource.description,
+          resource.category,
+          resource.fileName,
+          resource.uploaderName,
+        ].some((value) =>
+          String(value || '').toLowerCase().includes(searchText)
+        );
+
+      const matchesSubject =
+        !subjectText ||
+        String(resource.subject || '').toLowerCase().includes(subjectText);
+
       const matchesCategory =
         selectedCategory === 'All' ||
         resource.category === selectedCategory;
 
-      const searchableText = [
-        resource.title,
-        resource.subject,
-        resource.description,
-        resource.category,
-        resource.fileName,
-        resource.uploaderName,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+      const matchesSemester =
+        selectedSemester === 'All' ||
+        String(resource.semester || '') === selectedSemester;
 
-      return matchesCategory && (!query || searchableText.includes(query));
+      return (
+        matchesKeyword &&
+        matchesSubject &&
+        matchesCategory &&
+        matchesSemester
+      );
     });
-  }, [resources, searchText, selectedCategory]);
+  }, [
+    resources,
+    keyword,
+    subject,
+    selectedCategory,
+    selectedSemester,
+  ]);
+
+  const clearFilters = () => {
+    setKeyword('');
+    setSubject('');
+    setSelectedCategory('All');
+    setSelectedSemester('All');
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Search Resources</Text>
-      <Text style={styles.subtitle}>
-        Find academic materials shared by students.
-      </Text>
-
-      <TextInput
-        style={styles.input}
-        placeholder="Search by title, subject or category"
-        placeholderTextColor="#94A3B8"
-        value={searchText}
-        onChangeText={setSearchText}
-        autoCapitalize="none"
-        returnKeyType="search"
-      />
-
-      <Text style={styles.filterHeading}>Categories</Text>
-
+    <SafeAreaView style={styles.safeArea}>
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryList}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
       >
-        {categories.map((category) => (
-          <Pressable
-            key={category}
-            onPress={() => setSelectedCategory(category)}
-            style={[
-              styles.categoryButton,
-              selectedCategory === category && styles.categoryButtonActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.categoryText,
-                selectedCategory === category && styles.categoryTextActive,
-              ]}
-            >
-              {category}
+        <Text style={styles.heading}>Search Resources</Text>
+        <Text style={styles.subtitle}>
+          Find academic materials shared by students.
+        </Text>
+
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search title, module or keywords..."
+          placeholderTextColor={colors.mutedText}
+          value={keyword}
+          onChangeText={setKeyword}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+        />
+
+        <Text style={styles.filterHeading}>Category</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalList}
+        >
+          {categories.map((category) => {
+            const selected = selectedCategory === category;
+
+            return (
+              <Pressable
+                key={category}
+                style={[
+                  styles.chip,
+                  selected && styles.selectedChip,
+                ]}
+                onPress={() => setSelectedCategory(category)}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    selected && styles.selectedChipText,
+                  ]}
+                >
+                  {category}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Text style={styles.filterHeading}>Subject / Module</Text>
+
+        <TextInput
+          style={styles.subjectInput}
+          placeholder="Enter module name..."
+          placeholderTextColor={colors.mutedText}
+          value={subject}
+          onChangeText={setSubject}
+          autoCapitalize="none"
+        />
+
+        <Text style={styles.filterHeading}>Semester</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalList}
+        >
+          {semesters.map((semester) => {
+            const selected = selectedSemester === semester;
+
+            return (
+              <Pressable
+                key={semester}
+                style={[
+                  styles.chip,
+                  selected && styles.selectedChip,
+                ]}
+                onPress={() => setSelectedSemester(semester)}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    selected && styles.selectedChipText,
+                  ]}
+                >
+                  {semester === 'All' ? 'All' : `Sem ${semester}`}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Pressable style={styles.clearButton} onPress={clearFilters}>
+          <Text style={styles.clearText}>Clear all filters</Text>
+        </Pressable>
+
+        <View style={styles.resultsHeader}>
+          <Text style={styles.resultsTitle}>Resources</Text>
+          {!loading && (
+            <Text style={styles.resultsCount}>
+              {filteredResources.length} found
             </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      <View style={styles.resultsHeader}>
-        <Text style={styles.resultsTitle}>Available Resources</Text>
-        {!loading && (
-          <Text style={styles.resultsCount}>
-            {filteredResources.length} found
-          </Text>
-        )}
-      </View>
-
-      {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color="#1A2332" />
-          <Text style={styles.loadingText}>Loading resources...</Text>
-        </View>
-      ) : filteredResources.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptySymbol}>⌕</Text>
-          <Text style={styles.emptyTitle}>
-            {resources.length === 0
-              ? 'No resources available'
-              : 'No matching resources'}
-          </Text>
-          <Text style={styles.emptyText}>
-            {resources.length === 0
-              ? 'Academic materials shared by students will appear here.'
-              : 'Try another search term or choose a different category.'}
-          </Text>
-
-          {(searchText.length > 0 || selectedCategory !== 'All') && (
-            <Pressable
-              style={styles.clearButton}
-              onPress={() => {
-                setSearchText('');
-                setSelectedCategory('All');
-              }}
-            >
-              <Text style={styles.clearButtonText}>Clear filters</Text>
-            </Pressable>
           )}
         </View>
-      ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.resourceList}
-        >
-          {filteredResources.map((resource) => (
-            <ResourceCard key={resource.id} resource={resource} />
-          ))}
-        </ScrollView>
-      )}
+
+        {loading ? (
+          <ActivityIndicator
+            size="large"
+            color={colors.accent}
+            style={styles.loader}
+          />
+        ) : filteredResources.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No resources found</Text>
+            <Text style={styles.emptyDescription}>
+              Try another keyword or change your filters to find available
+              academic materials.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.resourceList}>
+            {filteredResources.map((resource) => (
+              <ResourceCard
+                key={resource.id}
+                resource={resource as Resource}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    padding: 20,
-  },
-  title: {
-    fontSize: 25,
-    fontWeight: '800',
-    color: '#1A2332',
-    marginTop: 12,
-  },
-  subtitle: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 8,
-  },
-  input: {
-    height: 50,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    marginTop: 24,
-    color: '#0F172A',
-  },
-  filterHeading: {
-    color: '#1A2332',
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 22,
-    marginBottom: 11,
-  },
-  categoryList: {
-    gap: 9,
-    paddingBottom: 4,
-  },
-  categoryButton: {
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  categoryButtonActive: {
-    backgroundColor: '#1A2332',
-    borderColor: '#1A2332',
-  },
-  categoryText: {
-    color: '#475569',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  categoryTextActive: {
-    color: '#FFFFFF',
-  },
-  resultsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 24,
-    marginBottom: 13,
-  },
-  resultsTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A2332',
-  },
-  resultsCount: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  loading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 10,
-  },
-  resourceList: {
-    paddingBottom: 25,
-    gap: 11,
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  emptySymbol: {
-    fontSize: 38,
-    color: '#94A3B8',
-    marginBottom: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A2332',
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  clearButton: {
-    marginTop: 17,
-    backgroundColor: '#1A2332',
-    borderRadius: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  clearButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-});

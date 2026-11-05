@@ -15,7 +15,7 @@ import {
   collection,
   doc,
   serverTimestamp,
-  writeBatch,
+  setDoc,
 } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
@@ -173,40 +173,23 @@ export default function UploadScreen() {
 
       uploadedPath = storagePath;
 
-      // Create both Firestore documents together.
-      const resourceRef = doc(collection(db, 'resources'));
-      const notificationRef = doc(collection(db, 'notifications'));
-
-      const uploaderName = user.displayName || 'Student';
-
-      const batch = writeBatch(db);
-
-      batch.set(resourceRef, {
-        title: title.trim(),
-        subject: subject.trim(),
-        semester,
-        category,
-        description: description.trim(),
-        fileName: selectedFile.name,
-        fileType: extension,
-        fileSize: selectedFile.size ?? null,
-        storagePath,
-        createdBy: user.uid,
-        uploaderName,
-        createdAt: serverTimestamp(),
-      });
-
-      batch.set(notificationRef, {
-        resourceId: resourceRef.id,
-        title: title.trim(),
-        subject: subject.trim(),
-        category,
-        uploaderName,
-        createdBy: user.uid,
-        createdAt: serverTimestamp(),
-      });
-
-      await batch.commit();
+    // Create the resource document in Firestore.
+    const resourceRef = doc(collection(db, 'resources'));
+    const uploaderName = user.displayName || 'Student';
+    await setDoc(resourceRef, {
+      title: title.trim(),
+      subject: subject.trim(),
+      semester,
+      category,
+      description: description.trim(),
+      fileName: selectedFile.name,
+      fileType: extension,
+      fileSize: selectedFile.size ?? null,
+      storagePath,
+      createdBy: user.uid,
+      uploaderName,
+      createdAt: serverTimestamp(),
+    });
 
       Alert.alert('Success', 'Your resource has been published.');
 

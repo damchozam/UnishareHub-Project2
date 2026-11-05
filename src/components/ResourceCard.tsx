@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,7 +31,7 @@ export type Resource = {
   description?: string;
   fileName?: string;
   fileType?: string;
-  fileSize?: string;
+  fileSize?: number | string | null;
   storagePath?: string;
   createdBy?: string;
   uploaderName?: string;
@@ -58,6 +59,30 @@ function getMimeType(fileName: string) {
   };
 
   return mimeTypes[extension || ''] || 'application/octet-stream';
+}
+
+// Convert stored file size in bytes into a readable format.
+function formatFileSize(size?: number | string | null) {
+  if (size === null || size === undefined || size === '') {
+    return '';
+  }
+
+  // Preserve older records where the size was already formatted as text.
+  if (typeof size === 'string' && !Number.isFinite(Number(size))) {
+    return size;
+  }
+
+  const bytes = Number(size);
+
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '';
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 export default function ResourceCard({ resource, onRemoved }: Props) {
@@ -139,7 +164,7 @@ export default function ResourceCard({ resource, onRemoved }: Props) {
           category: resource.category || '',
           fileName: resource.fileName || '',
           fileType: resource.fileType || '',
-          fileSize: resource.fileSize || '',
+          fileSize: resource.fileSize ?? null,
           storagePath: resource.storagePath || '',
           createdBy: resource.createdBy || '',
           uploaderName: resource.uploaderName || '',
@@ -217,7 +242,7 @@ export default function ResourceCard({ resource, onRemoved }: Props) {
           category: resource.category || '',
           fileName: originalName,
           fileType: resource.fileType || '',
-          fileSize: resource.fileSize || '',
+          fileSize: resource.fileSize ?? null,
           storagePath: resource.storagePath || '',
           createdBy: resource.createdBy || '',
           uploaderName: resource.uploaderName || '',
@@ -261,6 +286,7 @@ export default function ResourceCard({ resource, onRemoved }: Props) {
   };
 
   const date = formatDate();
+  const formattedFileSize = formatFileSize(resource.fileSize);
 
   const styles = StyleSheet.create({
     card: {
@@ -373,8 +399,8 @@ export default function ResourceCard({ resource, onRemoved }: Props) {
           </Text>
         </View>
 
-        {!!resource.fileSize && (
-          <Text style={styles.metadataText}>{resource.fileSize}</Text>
+        {!!formattedFileSize && (
+          <Text style={styles.metadataText}>{formattedFileSize}</Text>
         )}
 
         {!!date && <Text style={styles.metadataText}>{date}</Text>}

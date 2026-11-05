@@ -1,5 +1,4 @@
-
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,8 +7,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
@@ -20,8 +20,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { auth, db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../context/ThemeContext';
 
-type Resource = {
+export type Resource = {
   id: string;
   title: string;
   subject?: string;
@@ -33,65 +34,87 @@ type Resource = {
   storagePath?: string;
   createdBy?: string;
   uploaderName?: string;
+  createdAt?: { toMillis?: () => number } | null;
+  localUri?: string;
 };
 
 type Props = {
   resource: Resource;
+  onRemoved?: () => void;
 };
 
-export default function ResourceCard({ resource }: Props) {
+function getMimeType(fileName: string) {
+  const extension = fileName.split('.').pop()?.toLowerCase();
+
+  const mimeTypes: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    txt: 'text/plain',
+  };
+
+  return mimeTypes[extension || ''] || 'application/octet-stream';
+}
+
+export default function ResourceCard({ resource, onRemoved }: Props) {
+  const { colors, isDark } = useTheme();
+
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoading, setFavoriteLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
 
-  const checkFavorite = useCallback(async () => {
-    const currentUser = auth.currentUser;
+  const user = auth.currentUser;
 
-    if (!currentUser) {
-      setIsFavorite(false);
-      return;
-    }
+  useEffect(() => {
+    let mounted = true;
 
-    try {
-      const favoriteRef = doc(
-        db,
-        'users',
-        currentUser.uid,
-        'favorites',
-        resource.id
-      );
+    const checkFavorite = async () => {
+      if (!user) return;
 
-      const snapshot = await getDoc(favoriteRef);
-      setIsFavorite(snapshot.exists());
-    } catch (error) {
-      console.log('Error checking favorite:', error);
-    }
-  }, [resource.id]);
+      try {
+        const favoriteRef = doc(
+          db,
+          'users',
+          user.uid,
+          'favorites',
+          resource.id
+        );
 
-  useFocusEffect(
-    useCallback(() => {
-      checkFavorite();
-    }, [checkFavorite])
-  );
+        const favoriteSnap = await getDoc(favoriteRef);
 
-  // Navigate to the Resource Details screen.
-  const openResource = () => {
-    console.log('Opening resource:', resource.id);
+        if (mounted) {
+          setIsFavorite(favoriteSnap.exists());
+        }
+      } catch (error) {
+        console.error('Error checking favorite:', error);
+      }
+    };
 
+    checkFavorite();
+
+    return () => {
+      mounted = false;
+    };
+  }, [resource.id, user]);
+
+  const openDetails = () => {
     router.push({
       pathname: '/resource-details',
       params: { id: resource.id },
     });
   };
 
-  // Add or remove a resource from Favorites.
   const toggleFavorite = async () => {
-    const currentUser = auth.currentUser;
-
-    if (!currentUser) {
-      Alert.alert('Login required', 'Please log in to use Favorites.');
+    if (!user) {
+      Alert.alert('Login required', 'Please log in to save favorites.');
       return;
     }
+
+    if (favoriteLoading) return;
 
     setFavoriteLoading(true);
 
@@ -99,7 +122,7 @@ export default function ResourceCard({ resource }: Props) {
       const favoriteRef = doc(
         db,
         'users',
-        currentUser.uid,
+        user.uid,
         'favorites',
         resource.id
       );
@@ -107,267 +130,309 @@ export default function ResourceCard({ resource }: Props) {
       if (isFavorite) {
         await deleteDoc(favoriteRef);
         setIsFavorite(false);
+        onRemoved?.();
       } else {
         await setDoc(favoriteRef, {
-          ...resource,
+          resourceId: resource.id,
+          title: resource.title,
+          subject: resource.subject || '',
+          category: resource.category || '',
+          fileName: resource.fileName || '',
+          fileType: resource.fileType || '',
+          fileSize: resource.fileSize || '',
+          storagePath: resource.storagePath || '',
+          createdBy: resource.createdBy || '',
+          uploaderName: resource.uploaderName || '',
+          createdAt: resource.createdAt || null,
           savedAt: serverTimestamp(),
         });
 
         setIsFavorite(true);
       }
     } catch (error) {
-      console.log('Favorite error:', error);
-      Alert.alert('Error', 'Could not update Favorites.');
+      console.error('Favorite error:', error);
+      Alert.alert('Error', 'Unable to update your favorites.');
     } finally {
       setFavoriteLoading(false);
     }
   };
 
-  // Download the resource to the device.
   const downloadResource = async () => {
-    const currentUser = auth.currentUser;
-
-    if (!currentUser) {
+    if (!user) {
       Alert.alert('Login required', 'Please log in to download resources.');
       return;
     }
 
     if (!resource.storagePath) {
-      Alert.alert('Error', 'File location is unavailable.');
+      Alert.alert('Download unavailable', 'The file location is missing.');
       return;
     }
+
+    if (downloadLoading) return;
 
     setDownloadLoading(true);
 
     try {
       const { data, error } = await supabase.storage
         .from('resources')
-        .createSignedUrl(resource.storagePath, 3600);
+        .createSignedUrl(resource.storagePath, 60 * 10);
 
       if (error || !data?.signedUrl) {
-        throw error || new Error('Could not generate download link.');
+        throw error || new Error('Unable to generate download link.');
       }
 
-      const directory = FileSystem.documentDirectory;
+      const downloadsDirectory = `${FileSystem.documentDirectory}downloads/`;
 
-      if (!directory) {
-        throw new Error('Device storage is unavailable.');
+      const directoryInfo = await FileSystem.getInfoAsync(
+        downloadsDirectory
+      );
+
+      if (!directoryInfo.exists) {
+        await FileSystem.makeDirectoryAsync(downloadsDirectory, {
+          intermediates: true,
+        });
       }
 
-      const downloadDirectory = `${directory}downloads/`;
+      const originalName = resource.fileName || 'resource';
+      const safeName = originalName.replace(/[<>:"/\\|?*]/g, '_');
+      const localUri = `${downloadsDirectory}${resource.id}_${safeName}`;
 
-      await FileSystem.makeDirectoryAsync(downloadDirectory, {
-        intermediates: true,
-      }).catch(() => {});
-
-      const safeFileName = (resource.fileName || 'resource')
-        .replace(/[<>:"/\\|?*]/g, '_');
-
-      const localUri =
-        `${downloadDirectory}${resource.id}_${safeFileName}`;
-
-      const result = await FileSystem.downloadAsync(
+      const downloadResult = await FileSystem.downloadAsync(
         data.signedUrl,
         localUri
       );
 
-      if (result.status !== 200) {
-        throw new Error('Download failed.');
+      if (downloadResult.status < 200 || downloadResult.status >= 300) {
+        throw new Error(
+          `File download failed with status ${downloadResult.status}.`
+        );
       }
 
       await setDoc(
-        doc(db, 'users', currentUser.uid, 'downloads', resource.id),
+        doc(db, 'users', user.uid, 'downloads', resource.id),
         {
-          ...resource,
-          localUri: result.uri,
+          resourceId: resource.id,
+          title: resource.title,
+          subject: resource.subject || '',
+          category: resource.category || '',
+          fileName: originalName,
+          fileType: resource.fileType || '',
+          fileSize: resource.fileSize || '',
+          storagePath: resource.storagePath || '',
+          createdBy: resource.createdBy || '',
+          uploaderName: resource.uploaderName || '',
+          localUri: downloadResult.uri,
           downloadedAt: serverTimestamp(),
-        }
+        },
+        { merge: true }
       );
 
       Alert.alert(
         'Download complete',
-        'Resource saved to your Downloads.'
+        `${originalName} has been saved to your downloads.`,
+        [
+          { text: 'OK' },
+          {
+            text: 'View Downloads',
+            onPress: () => router.push('/(tabs)/downloads'),
+          },
+        ]
       );
-    } catch (error) {
-      console.log('Download error:', error);
-      Alert.alert('Download failed', 'Could not download this resource.');
+    } catch (error: any) {
+      console.error('Download error:', error);
+
+      Alert.alert(
+        'Download failed',
+        error?.message || 'Unable to download this resource. Please try again.'
+      );
     } finally {
       setDownloadLoading(false);
     }
   };
 
+  const formatDate = () => {
+    if (!resource.createdAt?.toMillis) return '';
+
+    try {
+      return new Date(resource.createdAt.toMillis()).toLocaleDateString();
+    } catch {
+      return '';
+    }
+  };
+
+  const date = formatDate();
+
+  const styles = StyleSheet.create({
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 12,
+    },
+    category: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      fontWeight: '600',
+      marginBottom: 7,
+      textTransform: 'uppercase',
+    },
+    title: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '700',
+      marginBottom: 6,
+    },
+    subject: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginBottom: 9,
+    },
+    description: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      lineHeight: 19,
+      marginBottom: 12,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginVertical: 11,
+    },
+    metadata: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    metadataText: {
+      color: colors.mutedText,
+      fontSize: 11,
+    },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 13,
+    },
+    actionGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 18,
+    },
+    actionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 5,
+    },
+    actionText: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    favoriteText: {
+      color: isFavorite ? '#E05268' : colors.secondaryText,
+    },
+    fileBadge: {
+      backgroundColor: isDark ? '#334155' : '#F1F5F9',
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 6,
+    },
+    fileBadgeText: {
+      color: colors.text,
+      fontSize: 10,
+      fontWeight: '700',
+    },
+  });
+
   return (
-    <View style={styles.card}>
-      {/* Resource information: tap to open details */}
-      <Pressable
-        style={styles.resourceContent}
-        onPress={openResource}
-      >
-        <View style={styles.topRow}>
-          <View style={styles.fileIcon}>
-            <Text style={styles.fileIconText}>▤</Text>
-          </View>
+    <Pressable style={styles.card} onPress={openDetails}>
+      <Text style={styles.category}>
+        {resource.category || 'RESOURCE'}
+      </Text>
 
-          <View style={styles.titleContainer}>
-            <Text style={styles.title} numberOfLines={2}>
-              {resource.title}
-            </Text>
+      <Text style={styles.title}>{resource.title}</Text>
 
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {resource.subject ||
-                resource.category ||
-                'Learning resource'}
-            </Text>
-          </View>
-        </View>
+      {!!resource.subject && (
+        <Text style={styles.subject}>{resource.subject}</Text>
+      )}
 
-        {resource.description ? (
-          <Text style={styles.description} numberOfLines={2}>
-            {resource.description}
-          </Text>
-        ) : null}
-
-        <Text style={styles.detailsHint}>
-          Tap to view resource details →
+      {!!resource.description && (
+        <Text style={styles.description} numberOfLines={3}>
+          {resource.description}
         </Text>
-      </Pressable>
+      )}
 
-      {/* Favorite and Download actions */}
-      <View style={styles.bottomRow}>
-        <View>
-          <Text style={styles.fileInfo}>
-            {resource.fileType || 'FILE'}
-            {resource.fileSize ? ` · ${resource.fileSize}` : ''}
+      <View style={styles.metadata}>
+        <View style={styles.fileBadge}>
+          <Text style={styles.fileBadgeText}>
+            {(resource.fileType || 'FILE').toUpperCase()}
           </Text>
         </View>
 
-        <View style={styles.actions}>
+        {!!resource.fileSize && (
+          <Text style={styles.metadataText}>{resource.fileSize}</Text>
+        )}
+
+        {!!date && <Text style={styles.metadataText}>{date}</Text>}
+      </View>
+
+      <View style={styles.divider} />
+
+      <View style={styles.actions}>
+        <View style={styles.actionGroup}>
           <Pressable
-            style={styles.favoriteButton}
-            onPress={toggleFavorite}
+            style={styles.actionButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              toggleFavorite();
+            }}
             disabled={favoriteLoading}
           >
             {favoriteLoading ? (
-              <ActivityIndicator size="small" color="#222222" />
+              <ActivityIndicator
+                size="small"
+                color={colors.secondaryText}
+              />
             ) : (
-              <Text style={styles.favoriteIcon}>
-                {isFavorite ? '♥' : '♡'}
-              </Text>
+              <>
+                <Text style={{ fontSize: 17 }}>
+                  {isFavorite ? '♥' : '♡'}
+                </Text>
+                <Text style={[styles.actionText, styles.favoriteText]}>
+                  {isFavorite ? 'Saved' : 'Save'}
+                </Text>
+              </>
             )}
           </Pressable>
 
           <Pressable
-            style={styles.downloadButton}
-            onPress={downloadResource}
+            style={styles.actionButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              downloadResource();
+            }}
             disabled={downloadLoading}
           >
             {downloadLoading ? (
-              <ActivityIndicator size="small" color="#222222" />
+              <ActivityIndicator
+                size="small"
+                color={colors.secondaryText}
+              />
             ) : (
-              <Text style={styles.downloadText}>↓ Download</Text>
+              <>
+                <Text style={{ fontSize: 16 }}>↓</Text>
+                <Text style={styles.actionText}>Download</Text>
+              </>
             )}
           </Pressable>
         </View>
+
+        <Text style={styles.actionText}>View details →</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-  },
-  resourceContent: {
-    width: '100%',
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  fileIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#F1F1F1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  fileIconText: {
-    fontSize: 22,
-    color: '#333333',
-  },
-  titleContainer: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#171717',
-  },
-  subtitle: {
-    fontSize: 12,
-    color: '#777777',
-    marginTop: 4,
-  },
-  description: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: '#666666',
-    marginTop: 13,
-  },
-  detailsHint: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 12,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 15,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-  },
-  fileInfo: {
-    fontSize: 11,
-    color: '#888888',
-    textTransform: 'uppercase',
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  favoriteButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F7F2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  favoriteIcon: {
-    fontSize: 22,
-    color: '#D94B5B',
-  },
-  downloadButton: {
-    backgroundColor: '#F1F1F1',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 105,
-    alignItems: 'center',
-  },
-  downloadText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#222222',
-  },
-});

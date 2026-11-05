@@ -1,3 +1,4 @@
+
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,8 +13,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import ResourceCard, { type Resource } from '../../components/ResourceCard';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function FavoritesScreen() {
+  const { colors } = useTheme();
+
   const [favorites, setFavorites] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -57,22 +61,31 @@ export default function FavoritesScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Favorites</Text>
-      <Text style={styles.subtitle}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
+      <Text style={[styles.title, { color: colors.text }]}>
+        Favorites
+      </Text>
+
+      <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
         Keep your useful academic resources close.
       </Text>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1A2332" />
-          <Text style={styles.loadingText}>Loading favorites...</Text>
+          <ActivityIndicator size="large" color={colors.text} />
+          <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
+            Loading favorites...
+          </Text>
         </View>
       ) : favorites.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.symbol}>♡</Text>
-          <Text style={styles.emptyTitle}>No favorites yet</Text>
-          <Text style={styles.emptyText}>
+          <Text style={[styles.symbol, { color: colors.text }]}>♡</Text>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            No favorites yet
+          </Text>
+          <Text style={[styles.emptyText, { color: colors.secondaryText }]}>
             Tap the heart on any resource to save it here.
           </Text>
         </View>
@@ -81,7 +94,7 @@ export default function FavoritesScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.count}>
+          <Text style={[styles.count, { color: colors.secondaryText }]}>
             {favorites.length} saved{' '}
             {favorites.length === 1 ? 'resource' : 'resources'}
           </Text>
@@ -102,17 +115,14 @@ export default function FavoritesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
     padding: 20,
   },
   title: {
     fontSize: 25,
     fontWeight: '800',
-    color: '#1A2332',
     marginTop: 12,
   },
   subtitle: {
-    color: '#64748B',
     fontSize: 13,
     marginTop: 8,
   },
@@ -124,23 +134,19 @@ const styles = StyleSheet.create({
   },
   symbol: {
     fontSize: 43,
-    color: '#1A2332',
   },
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1A2332',
     marginTop: 12,
   },
   emptyText: {
     fontSize: 13,
-    color: '#64748B',
     marginTop: 8,
     textAlign: 'center',
   },
   loadingText: {
     fontSize: 13,
-    color: '#64748B',
     marginTop: 10,
   },
   list: {
@@ -149,7 +155,6 @@ const styles = StyleSheet.create({
     gap: 11,
   },
   count: {
-    color: '#64748B',
     fontSize: 12,
     marginBottom: 3,
   },

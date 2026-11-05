@@ -6,13 +6,14 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { signOut, updateProfile } from 'firebase/auth';
 
 import { auth, db } from '../../lib/firebase';
@@ -24,11 +25,17 @@ export default function ProfileScreen() {
   const [name, setName] = useState('Student');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('Student');
+  const [programme, setProgramme] = useState('');
+  const [semester, setSemester] = useState('');
+
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editedName, setEditedName] = useState('');
+  const [editedProgramme, setEditedProgramme] = useState('');
+  const [editedSemester, setEditedSemester] = useState('');
+
   const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
@@ -52,11 +59,19 @@ export default function ProfileScreen() {
           setName(profileData.name || user.displayName || 'Student');
           setEmail(profileData.email || user.email || '');
           setRole(profileData.role || 'Student');
+          setProgramme(profileData.programme || '');
+          setSemester(
+            profileData.semester !== undefined &&
+            profileData.semester !== null
+              ? String(profileData.semester)
+              : ''
+          );
         } else {
           setName(user.displayName || 'Student');
         }
       } catch (error) {
         console.error('Error loading profile:', error);
+        Alert.alert('Error', 'Unable to load your profile information.');
         setName(user.displayName || 'Student');
       } finally {
         setLoading(false);
@@ -68,64 +83,93 @@ export default function ProfileScreen() {
 
   const openEditProfile = () => {
     setEditedName(name);
+    setEditedProgramme(programme);
+    setEditedSemester(semester);
     setEditModalVisible(true);
   };
 
-  const handleSaveProfile = async () => {
-    const user = auth.currentUser;
-    const trimmedName = editedName.trim();
+const handleSaveProfile = async () => {
+  const user = auth.currentUser;
 
-    if (!user) {
-      Alert.alert('Login required', 'Please log in again.');
-      return;
-    }
+  const trimmedName = editedName.trim();
+  const trimmedProgramme = editedProgramme.trim();
+  const trimmedSemester = editedSemester.trim();
 
-    if (!trimmedName) {
-      Alert.alert('Name required', 'Please enter your full name.');
-      return;
-    }
+  if (!user) {
+    Alert.alert('Login required', 'Please log in again.');
+    return;
+  }
 
-    if (trimmedName.length < 2) {
-      Alert.alert(
-        'Invalid name',
-        'Your name must contain at least 2 characters.'
-      );
-      return;
-    }
+  if (!trimmedName || trimmedName.length < 2) {
+    Alert.alert(
+      'Invalid name',
+      'Please enter a name containing at least 2 characters.'
+    );
+    return;
+  }
 
-    if (savingProfile) return;
+  if (!trimmedProgramme) {
+    Alert.alert('Programme required', 'Please enter your academic programme.');
+    return;
+  }
 
-    setSavingProfile(true);
+  if (!/^[1-8]$/.test(trimmedSemester)) {
+    Alert.alert(
+      'Invalid semester',
+      'Please enter a semester number between 1 and 8.'
+    );
+    return;
+  }
 
-    try {
-      // Update the Firestore user profile.
-      await updateDoc(doc(db, 'users', user.uid), {
+  if (savingProfile) return;
+
+  setSavingProfile(true);
+
+  try {
+    const userRef = doc(db, 'users', user.uid);
+
+    // Creates the user document if missing, or updates existing fields.
+    await setDoc(
+      userRef,
+      {
         name: trimmedName,
-      });
+        programme: trimmedProgramme,
+        semester: trimmedSemester,
+        email: user.email || email,
+      },
+      { merge: true }
+    );
 
-      // Update the Firebase Authentication display name.
+    // Update Firebase Auth display name as well.
+    try {
       await updateProfile(user, {
         displayName: trimmedName,
       });
-
-      setName(trimmedName);
-      setEditModalVisible(false);
-
-      Alert.alert(
-        'Profile updated',
-        'Your name has been updated successfully.'
-      );
-    } catch (error: any) {
-      console.error('Profile update error:', error);
-
-      Alert.alert(
-        'Update failed',
-        error?.message || 'Unable to update your profile. Please try again.'
-      );
-    } finally {
-      setSavingProfile(false);
+    } catch (authError) {
+      console.warn('Firebase Auth display name update:', authError);
     }
-  };
+
+    setName(trimmedName);
+    setProgramme(trimmedProgramme);
+    setSemester(trimmedSemester);
+
+    setEditModalVisible(false);
+
+    Alert.alert(
+      'Profile updated',
+      'Your profile information has been saved successfully.'
+    );
+  } catch (error: any) {
+    console.error('Profile update error:', error);
+
+    Alert.alert(
+      'Update failed',
+      error?.message || 'Unable to save your profile. Please try again.'
+    );
+  } finally {
+    setSavingProfile(false);
+  }
+};
 
   const handleLogout = () => {
     Alert.alert(
@@ -161,138 +205,173 @@ export default function ProfileScreen() {
 
   const initial = name.trim().charAt(0).toUpperCase() || 'U';
 
+  const inputStyle = [
+    styles.input,
+    {
+      backgroundColor: colors.input,
+      borderColor: colors.border,
+      color: colors.text,
+    },
+  ];
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.background }]}
     >
-      <Text style={[styles.title, { color: colors.text }]}>
-        My Profile
-      </Text>
-
-      <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
-        Manage your academic account.
-      </Text>
-
-      <View
-        style={[
-          styles.profileCard,
-          {
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
-          },
-        ]}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
+        <Text style={[styles.title, { color: colors.text }]}>
+          My Profile
+        </Text>
+
+        <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
+          Manage your academic account.
+        </Text>
+
+        <View
+          style={[
+            styles.profileCard,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
+            {loading ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text style={[styles.avatarText, { color: colors.background }]}>
+                {initial}
+              </Text>
+            )}
+          </View>
+
           {loading ? (
-            <ActivityIndicator color={colors.background} />
-          ) : (
-            <Text style={[styles.avatarText, { color: colors.background }]}>
-              {initial}
+            <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
+              Loading profile...
             </Text>
+          ) : (
+            <>
+              <Text style={[styles.name, { color: colors.text }]}>
+                {name}
+              </Text>
+
+              <Text style={[styles.email, { color: colors.secondaryText }]}>
+                {email}
+              </Text>
+
+              <View style={[styles.roleBadge, { backgroundColor: colors.soft }]}>
+                <Text style={[styles.roleText, { color: colors.secondaryText }]}>
+                  {role}
+                </Text>
+              </View>
+
+              <View style={styles.academicInfo}>
+                <View style={styles.academicRow}>
+                  <Text style={[styles.infoLabel, { color: colors.mutedText }]}>
+                    Programme
+                  </Text>
+                  <Text style={[styles.infoValue, { color: colors.text }]}>
+                    {programme || 'Not provided'}
+                  </Text>
+                </View>
+
+                <View style={[styles.infoDivider, { backgroundColor: colors.border }]} />
+
+                <View style={styles.academicRow}>
+                  <Text style={[styles.infoLabel, { color: colors.mutedText }]}>
+                    Semester
+                  </Text>
+                  <Text style={[styles.infoValue, { color: colors.text }]}>
+                    {semester ? `Semester ${semester}` : 'Not provided'}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[styles.note, { color: colors.mutedText }]}>
+                Your account information is connected to Firebase.
+              </Text>
+
+              <Pressable
+                style={[
+                  styles.editButton,
+                  { backgroundColor: colors.accent },
+                ]}
+                onPress={openEditProfile}
+              >
+                <Text
+                  style={[
+                    styles.editButtonText,
+                    { color: colors.background },
+                  ]}
+                >
+                  Edit Profile
+                </Text>
+              </Pressable>
+            </>
           )}
         </View>
 
-        {loading ? (
-          <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
-            Loading profile...
+        <Pressable
+          style={[
+            styles.menuItem,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+          onPress={() => router.push('/settings')}
+        >
+          <Text style={[styles.menuText, { color: colors.text }]}>
+            Account Settings
           </Text>
-        ) : (
-          <>
-            <Text style={[styles.name, { color: colors.text }]}>
-              {name}
-            </Text>
-
-            <Text style={[styles.email, { color: colors.secondaryText }]}>
-              {email}
-            </Text>
-
-            <View style={[styles.roleBadge, { backgroundColor: colors.soft }]}>
-              <Text style={[styles.roleText, { color: colors.secondaryText }]}>
-                {role}
-              </Text>
-            </View>
-
-            <Text style={[styles.note, { color: colors.mutedText }]}>
-              Your account information is connected to Firebase.
-            </Text>
-
-            <Pressable
-              style={[
-                styles.editButton,
-                { backgroundColor: colors.accent },
-              ]}
-              onPress={openEditProfile}
-            >
-              <Text
-                style={[
-                  styles.editButtonText,
-                  { color: colors.background },
-                ]}
-              >
-                Edit Profile
-              </Text>
-            </Pressable>
-          </>
-        )}
-      </View>
-
-      {/* Account Settings */}
-      <Pressable
-        style={[
-          styles.menuItem,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-        onPress={() => router.push('/settings')}
-      >
-        <Text style={[styles.menuText, { color: colors.text }]}>
-          Account Settings
-        </Text>
-        <Text style={[styles.arrow, { color: colors.secondaryText }]}>
-          ›
-        </Text>
-      </Pressable>
-
-      {/* My Uploads */}
-      <Pressable
-        style={[
-          styles.menuItem,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-        onPress={() => router.push('/my-uploads')}
-      >
-        <Text style={[styles.menuText, { color: colors.text }]}>
-          My Uploads
-        </Text>
-        <Text style={[styles.arrow, { color: colors.secondaryText }]}>
-          ›
-        </Text>
-      </Pressable>
-
-      {/* Log Out */}
-      <Pressable
-        style={[
-          styles.logout,
-          { borderColor: colors.border },
-          loggingOut && styles.disabledButton,
-        ]}
-        onPress={handleLogout}
-        disabled={loggingOut}
-      >
-        {loggingOut ? (
-          <ActivityIndicator color={colors.text} />
-        ) : (
-          <Text style={[styles.logoutText, { color: colors.text }]}>
-            Log Out
+          <Text style={[styles.arrow, { color: colors.secondaryText }]}>
+            ›
           </Text>
-        )}
-      </Pressable>
+        </Pressable>
 
-      {/* Edit Profile Modal */}
+        <Pressable
+          style={[
+            styles.menuItem,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+          onPress={() => router.push('/my-uploads')}
+        >
+          <Text style={[styles.menuText, { color: colors.text }]}>
+            My Uploads
+          </Text>
+          <Text style={[styles.arrow, { color: colors.secondaryText }]}>
+            ›
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={[
+            styles.logout,
+            { borderColor: colors.border },
+            loggingOut && styles.disabledButton,
+          ]}
+          onPress={handleLogout}
+          disabled={loggingOut}
+        >
+          {loggingOut ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <Text style={[styles.logoutText, { color: colors.text }]}>
+              Log Out
+            </Text>
+          )}
+        </Pressable>
+      </ScrollView>
+
       <Modal
         visible={editModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setEditModalVisible(false)}
+        onRequestClose={() => {
+          if (!savingProfile) setEditModalVisible(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View
@@ -309,7 +388,7 @@ export default function ProfileScreen() {
             </Text>
 
             <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
-              Update your basic account information.
+              Update your personal and academic information.
             </Text>
 
             <Text style={[styles.inputLabel, { color: colors.text }]}>
@@ -317,20 +396,45 @@ export default function ProfileScreen() {
             </Text>
 
             <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: colors.input,
-                  borderColor: colors.border,
-                  color: colors.text,
-                },
-              ]}
+              style={inputStyle}
               value={editedName}
               onChangeText={setEditedName}
               placeholder="Enter your full name"
               placeholderTextColor={colors.mutedText}
               autoCapitalize="words"
               maxLength={60}
+              editable={!savingProfile}
+            />
+
+            <Text style={[styles.inputLabel, { color: colors.text }]}>
+              Programme
+            </Text>
+
+            <TextInput
+              style={inputStyle}
+              value={editedProgramme}
+              onChangeText={setEditedProgramme}
+              placeholder="e.g. BE Information Technology"
+              placeholderTextColor={colors.mutedText}
+              autoCapitalize="words"
+              maxLength={100}
+              editable={!savingProfile}
+            />
+
+            <Text style={[styles.inputLabel, { color: colors.text }]}>
+              Semester
+            </Text>
+
+            <TextInput
+              style={inputStyle}
+              value={editedSemester}
+              onChangeText={(value) =>
+                setEditedSemester(value.replace(/[^0-9]/g, '').slice(0, 1))
+              }
+              placeholder="Enter semester (1–8)"
+              placeholderTextColor={colors.mutedText}
+              keyboardType="number-pad"
+              maxLength={1}
               editable={!savingProfile}
             />
 
@@ -402,7 +506,10 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+  },
+  scrollContent: {
+    paddingBottom: 25,
   },
   title: {
     fontSize: 25,
@@ -454,6 +561,26 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 13,
     marginTop: 14,
+  },
+  academicInfo: {
+    width: '100%',
+    marginTop: 20,
+    paddingHorizontal: 5,
+  },
+  academicRow: {
+    paddingVertical: 10,
+    gap: 5,
+  },
+  infoLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  infoValue: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  infoDivider: {
+    height: 1,
   },
   note: {
     fontSize: 12,
@@ -522,7 +649,7 @@ const styles = StyleSheet.create({
   modalSubtitle: {
     fontSize: 13,
     marginTop: 7,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   inputLabel: {
     fontSize: 13,

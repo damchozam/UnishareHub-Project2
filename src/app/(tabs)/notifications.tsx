@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import {
@@ -21,7 +22,9 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore';
+
 import { auth, db } from '../../lib/firebase';
+import { useTheme } from '../../context/ThemeContext';
 
 type NotificationItem = {
   id: string;
@@ -37,17 +40,67 @@ type NotificationItem = {
   };
 };
 
-function BellIcon({ color = '#1A2332' }: { color?: string }) {
+function BellIcon({
+  color,
+}: {
+  color: string;
+}) {
   return (
-    <View style={styles.bellIcon}>
-      <View style={[styles.bellBody, { borderColor: color }]} />
-      <View style={[styles.bellBase, { backgroundColor: color }]} />
-      <View style={[styles.bellClapper, { backgroundColor: color }]} />
+    <View style={bellStyles.bellIcon}>
+      <View
+        style={[
+          bellStyles.bellBody,
+          { borderColor: color },
+        ]}
+      />
+      <View
+        style={[
+          bellStyles.bellBase,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          bellStyles.bellClapper,
+          { backgroundColor: color },
+        ]}
+      />
     </View>
   );
 }
 
-function formatNotificationDate(timestamp?: NotificationItem['createdAt']) {
+const bellStyles = StyleSheet.create({
+  bellIcon: {
+    width: 23,
+    height: 25,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  bellBody: {
+    width: 17,
+    height: 17,
+    borderWidth: 2,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+    borderBottomWidth: 0,
+  },
+  bellBase: {
+    width: 21,
+    height: 2,
+    borderRadius: 2,
+  },
+  bellClapper: {
+    position: 'absolute',
+    bottom: 0,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+});
+
+function formatNotificationDate(
+  timestamp?: NotificationItem['createdAt']
+) {
   if (!timestamp?.toDate) return 'Recently';
 
   const date = timestamp.toDate();
@@ -68,6 +121,10 @@ function formatNotificationDate(timestamp?: NotificationItem['createdAt']) {
 }
 
 export default function NotificationsScreen() {
+  const { colors } = useTheme();
+
+  const styles = createStyles(colors);
+
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingResource, setOpeningResource] = useState<string | null>(null);
@@ -80,7 +137,7 @@ export default function NotificationsScreen() {
       return;
     }
 
-    // Mark all existing notifications as viewed when this screen opens.
+    // Mark notifications as viewed when the screen opens.
     updateDoc(doc(db, 'users', user.uid), {
       lastViewedNotificationsAt: serverTimestamp(),
     }).catch((error) => {
@@ -96,20 +153,21 @@ export default function NotificationsScreen() {
     const unsubscribe = onSnapshot(
       notificationsQuery,
       (snapshot) => {
-        const items = snapshot.docs
-          .map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as NotificationItem[];
+        const items = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as NotificationItem[];
 
         setNotifications(
           items.filter((item) => item.createdBy !== user.uid)
         );
+
         setLoading(false);
       },
       (error) => {
         console.error('Notifications loading error:', error);
         setLoading(false);
+
         Alert.alert(
           'Unable to load notifications',
           'Please check your internet connection and try again.'
@@ -143,6 +201,7 @@ export default function NotificationsScreen() {
       });
     } catch (error) {
       console.error('Unable to open notification resource:', error);
+
       Alert.alert(
         'Unable to open resource',
         'Please try again in a moment.'
@@ -167,20 +226,27 @@ export default function NotificationsScreen() {
           </Pressable>
 
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Notifications</Text>
+            <Text style={styles.headerTitle}>
+              Notifications
+            </Text>
+
             <Text style={styles.headerSubtitle}>
               Updates about newly shared resources
             </Text>
           </View>
 
           <View style={styles.headerIcon}>
-            <BellIcon />
+            <BellIcon color={colors.accent} />
           </View>
         </View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1A2332" />
+            <ActivityIndicator
+              size="large"
+              color={colors.accent}
+            />
+
             <Text style={styles.loadingText}>
               Loading notifications...
             </Text>
@@ -188,10 +254,12 @@ export default function NotificationsScreen() {
         ) : notifications.length === 0 ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconContainer}>
-              <BellIcon color="#64748B" />
+              <BellIcon color={colors.secondaryText} />
             </View>
 
-            <Text style={styles.emptyTitle}>You're all caught up</Text>
+            <Text style={styles.emptyTitle}>
+              You're all caught up
+            </Text>
 
             <Text style={styles.emptyDescription}>
               When other students share new academic resources, their updates
@@ -210,7 +278,10 @@ export default function NotificationsScreen() {
         ) : (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Activity</Text>
+              <Text style={styles.sectionTitle}>
+                Recent Activity
+              </Text>
+
               <Text style={styles.sectionCount}>
                 {notifications.length} updates
               </Text>
@@ -272,7 +343,7 @@ export default function NotificationsScreen() {
                     {openingResource === item.resourceId ? (
                       <ActivityIndicator
                         size="small"
-                        color="#64748B"
+                        color={colors.secondaryText}
                       />
                     ) : (
                       <Text style={styles.chevron}>›</Text>
@@ -288,240 +359,216 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  container: {
-    flexGrow: 1,
-    padding: 20,
-    paddingBottom: 35,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  backArrow: {
-    color: '#1A2332',
-    fontSize: 30,
-    lineHeight: 34,
-    marginTop: -3,
-  },
-  headerTextContainer: {
-    flex: 1,
-  },
-  headerTitle: {
-    color: '#1A2332',
-    fontSize: 21,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: '#64748B',
-    fontSize: 11,
-    marginTop: 4,
-  },
-  headerIcon: {
-    width: 43,
-    height: 43,
-    borderRadius: 13,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  bellIcon: {
-    width: 23,
-    height: 25,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  bellBody: {
-    width: 17,
-    height: 17,
-    borderWidth: 2,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    borderBottomWidth: 0,
-  },
-  bellBase: {
-    width: 21,
-    height: 2,
-    borderRadius: 2,
-  },
-  bellClapper: {
-    position: 'absolute',
-    bottom: 0,
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-  },
-  loadingContainer: {
-    flex: 1,
-    minHeight: 300,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    minHeight: 380,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  emptyIconContainer: {
-    width: 76,
-    height: 76,
-    borderRadius: 24,
-    backgroundColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  emptyTitle: {
-    color: '#1A2332',
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyDescription: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginTop: 9,
-    maxWidth: 280,
-  },
-  browseButton: {
-    marginTop: 22,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 9,
-    backgroundColor: '#1A2332',
-  },
-  browseButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    color: '#1A2332',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  sectionCount: {
-    color: '#64748B',
-    fontSize: 11,
-  },
-  notificationList: {
-    gap: 12,
-  },
-  notificationCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 14,
-  },
-  notificationCardPressed: {
-    opacity: 0.7,
-  },
-  documentIconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  documentIcon: {
-    color: '#1A2332',
-    fontSize: 23,
-  },
-  notificationContent: {
-    flex: 1,
-  },
-  notificationHeading: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  notificationTitle: {
-    color: '#1A2332',
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 5,
-    lineHeight: 20,
-  },
-  notificationSubject: {
-    color: '#475569',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  notificationMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
-  },
-  categoryBadge: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  categoryBadgeText: {
-    color: '#475569',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  notificationDate: {
-    color: '#94A3B8',
-    fontSize: 10,
-  },
-  uploaderText: {
-    color: '#64748B',
-    fontSize: 11,
-    marginTop: 9,
-  },
-  trailingContainer: {
-    width: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginLeft: 6,
-  },
-  chevron: {
-    color: '#94A3B8',
-    fontSize: 26,
-  },
-});
+function createStyles(colors: any) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      flexGrow: 1,
+      padding: 20,
+      paddingBottom: 35,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 30,
+    },
+    backButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    backArrow: {
+      color: colors.text,
+      fontSize: 30,
+      lineHeight: 34,
+      marginTop: -3,
+    },
+    headerTextContainer: {
+      flex: 1,
+    },
+    headerTitle: {
+      color: colors.text,
+      fontSize: 21,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      color: colors.secondaryText,
+      fontSize: 11,
+      marginTop: 4,
+    },
+    headerIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 13,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
+    },
+    loadingContainer: {
+      flex: 1,
+      minHeight: 300,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    loadingText: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginTop: 12,
+    },
+    emptyContainer: {
+      flex: 1,
+      minHeight: 380,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+    },
+    emptyIconContainer: {
+      width: 76,
+      height: 76,
+      borderRadius: 24,
+      backgroundColor: colors.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 20,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    emptyDescription: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      lineHeight: 21,
+      textAlign: 'center',
+      marginTop: 9,
+      maxWidth: 280,
+    },
+    browseButton: {
+      marginTop: 22,
+      paddingHorizontal: 22,
+      paddingVertical: 12,
+      borderRadius: 9,
+      backgroundColor: colors.accent,
+    },
+    browseButtonText: {
+      color: colors.background,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 15,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    sectionCount: {
+      color: colors.secondaryText,
+      fontSize: 11,
+    },
+    notificationList: {
+      gap: 12,
+    },
+    notificationCard: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      backgroundColor: colors.surface,
+      borderRadius: 13,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 14,
+    },
+    notificationCardPressed: {
+      opacity: 0.7,
+    },
+    documentIconContainer: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      backgroundColor: colors.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    documentIcon: {
+      color: colors.accent,
+      fontSize: 23,
+    },
+    notificationContent: {
+      flex: 1,
+    },
+    notificationHeading: {
+      color: colors.secondaryText,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    notificationTitle: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+      marginTop: 5,
+      lineHeight: 20,
+    },
+    notificationSubject: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      marginTop: 4,
+    },
+    notificationMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 10,
+    },
+    categoryBadge: {
+      backgroundColor: colors.soft,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 6,
+    },
+    categoryBadgeText: {
+      color: colors.secondaryText,
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    notificationDate: {
+      color: colors.mutedText,
+      fontSize: 10,
+    },
+    uploaderText: {
+      color: colors.secondaryText,
+      fontSize: 11,
+      marginTop: 9,
+    },
+    trailingContainer: {
+      width: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      alignSelf: 'center',
+      marginLeft: 6,
+    },
+    chevron: {
+      color: colors.mutedText,
+      fontSize: 26,
+    },
+  });
+}

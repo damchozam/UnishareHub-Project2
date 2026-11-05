@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import {
   View,
@@ -18,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../context/ThemeContext';
 
 const categories = [
   'Lecture Notes',
@@ -44,6 +46,8 @@ const allowedExtensions = [
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 export default function UploadScreen() {
+  const { colors } = useTheme();
+
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [semester, setSemester] = useState(semesters[0]);
@@ -104,7 +108,10 @@ export default function UploadScreen() {
     const user = auth.currentUser;
 
     if (!user) {
-      Alert.alert('Login required', 'Please log in before uploading a resource.');
+      Alert.alert(
+        'Login required',
+        'Please log in before uploading a resource.'
+      );
       return;
     }
 
@@ -246,125 +253,224 @@ export default function UploadScreen() {
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[
+        styles.container,
+        { backgroundColor: colors.background },
+      ]}
       contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.heading}>Share a Resource</Text>
+      <Text style={[styles.heading, { color: colors.text }]}>
+        Share a Resource
+      </Text>
 
-      <Text style={styles.subtitle}>
+      <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
         Upload study materials to help other students.
       </Text>
 
-      <Text style={styles.label}>Resource Title *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Resource Title *
+      </Text>
 
       <TextInput
-        style={styles.input}
+        style={[
+          styles.input,
+          {
+            color: colors.text,
+            backgroundColor: colors.input,
+            borderColor: colors.border,
+          },
+        ]}
         placeholder="Enter resource title"
-        placeholderTextColor="#888"
+        placeholderTextColor={colors.mutedText}
         value={title}
         onChangeText={setTitle}
       />
 
-      <Text style={styles.label}>Subject / Module *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Subject / Module *
+      </Text>
 
       <TextInput
-        style={styles.input}
+        style={[
+          styles.input,
+          {
+            color: colors.text,
+            backgroundColor: colors.input,
+            borderColor: colors.border,
+          },
+        ]}
         placeholder="Enter module name"
-        placeholderTextColor="#888"
+        placeholderTextColor={colors.mutedText}
         value={subject}
         onChangeText={setSubject}
       />
 
-      <Text style={styles.label}>Semester *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Semester *
+      </Text>
 
       <View style={styles.semesters}>
-        {semesters.map((item) => (
-          <Pressable
-            key={item}
-            onPress={() => setSemester(item)}
-            style={[
-              styles.semesterButton,
-              semester === item && styles.semesterSelected,
-            ]}
-          >
-            <Text
+        {semesters.map((item) => {
+          const selected = semester === item;
+
+          return (
+            <Pressable
+              key={item}
+              onPress={() => setSemester(item)}
               style={[
-                styles.semesterText,
-                semester === item && styles.semesterTextSelected,
+                styles.semesterButton,
+                {
+                  borderColor: selected ? colors.accent : colors.border,
+                  backgroundColor: selected ? colors.accent : colors.surface,
+                },
               ]}
             >
-              {item.replace('Semester ', 'Sem ')}
-            </Text>
-          </Pressable>
-        ))}
+              <Text
+                style={[
+                  styles.semesterText,
+                  {
+                    color: selected ? colors.background : colors.text,
+                  },
+                ]}
+              >
+                {item.replace('Semester ', 'Sem ')}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      <Text style={styles.label}>Category *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Category *
+      </Text>
 
       <View style={styles.categories}>
-        {categories.map((item) => (
-          <Pressable
-            key={item}
-            onPress={() => setCategory(item)}
-            style={[
-              styles.categoryButton,
-              category === item && styles.categorySelected,
-            ]}
-          >
-            <Text
+        {categories.map((item) => {
+          const selected = category === item;
+
+          return (
+            <Pressable
+              key={item}
+              onPress={() => setCategory(item)}
               style={[
-                styles.categoryText,
-                category === item && styles.categoryTextSelected,
+                styles.categoryButton,
+                {
+                  borderColor: selected ? colors.accent : colors.border,
+                  backgroundColor: selected ? colors.accent : colors.surface,
+                },
               ]}
             >
-              {item}
-            </Text>
-          </Pressable>
-        ))}
+              <Text
+                style={[
+                  styles.categoryText,
+                  {
+                    color: selected ? colors.background : colors.text,
+                  },
+                ]}
+              >
+                {item}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      <Text style={styles.label}>Description</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Description
+      </Text>
 
       <TextInput
-        style={[styles.input, styles.description]}
+        style={[
+          styles.input,
+          styles.description,
+          {
+            color: colors.text,
+            backgroundColor: colors.input,
+            borderColor: colors.border,
+          },
+        ]}
         placeholder="Add a short description (optional)"
-        placeholderTextColor="#888"
+        placeholderTextColor={colors.mutedText}
         value={description}
         onChangeText={setDescription}
         multiline
         textAlignVertical="top"
       />
 
-      <Text style={styles.label}>Attach File *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>
+        Attach File *
+      </Text>
 
-      <Pressable style={styles.filePicker} onPress={chooseFile}>
-        <Text style={styles.plus}>＋</Text>
+      <Pressable
+        style={[
+          styles.filePicker,
+          {
+            borderColor: colors.border,
+            backgroundColor: colors.soft,
+          },
+        ]}
+        onPress={chooseFile}
+      >
+        <Text style={[styles.plus, { color: colors.text }]}>
+          ＋
+        </Text>
 
-        <Text style={styles.filePickerTitle}>Add your file</Text>
+        <Text style={[styles.filePickerTitle, { color: colors.text }]}>
+          Add your file
+        </Text>
 
-        <Text style={styles.filePickerHint}>
+        <Text
+          style={[
+            styles.filePickerHint,
+            { color: colors.secondaryText },
+          ]}
+        >
           PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX or TXT
         </Text>
 
-        <Text style={styles.filePickerHint}>
+        <Text
+          style={[
+            styles.filePickerHint,
+            { color: colors.secondaryText },
+          ]}
+        >
           Maximum size: 20 MB
         </Text>
       </Pressable>
 
       {selectedFile && (
-        <View style={styles.selectedFile}>
+        <View
+          style={[
+            styles.selectedFile,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            },
+          ]}
+        >
           <View style={styles.fileInfo}>
-            <Text style={styles.fileName} numberOfLines={2}>
+            <Text
+              style={[styles.fileName, { color: colors.text }]}
+              numberOfLines={2}
+            >
               {selectedFile.name}
             </Text>
 
-            <Text style={styles.fileSize}>
+            <Text
+              style={[
+                styles.fileSize,
+                { color: colors.secondaryText },
+              ]}
+            >
               {formatFileSize(selectedFile.size)}
             </Text>
           </View>
 
           <Pressable onPress={() => setSelectedFile(null)}>
-            <Text style={styles.removeText}>Remove</Text>
+            <Text style={[styles.removeText, { color: colors.danger }]}>
+              Remove
+            </Text>
           </Pressable>
         </View>
       )}
@@ -372,15 +478,25 @@ export default function UploadScreen() {
       <Pressable
         style={[
           styles.publishButton,
+          {
+            backgroundColor: colors.accent,
+          },
           uploading && styles.disabledButton,
         ]}
         onPress={publishResource}
         disabled={uploading}
       >
         {uploading ? (
-          <ActivityIndicator color="#FFFFFF" />
+          <ActivityIndicator color={colors.background} />
         ) : (
-          <Text style={styles.publishText}>Publish Resource</Text>
+          <Text
+            style={[
+              styles.publishText,
+              { color: colors.background },
+            ]}
+          >
+            Publish Resource
+          </Text>
         )}
       </Pressable>
     </ScrollView>
@@ -390,7 +506,6 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   content: {
     padding: 22,
@@ -399,30 +514,24 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 25,
     fontWeight: '700',
-    color: '#171717',
     marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
-    color: '#777777',
     marginBottom: 25,
   },
   label: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#222222',
     marginBottom: 9,
     marginTop: 17,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#DDDDDD',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 13,
     fontSize: 14,
-    color: '#222222',
-    backgroundColor: '#FFFFFF',
   },
   description: {
     height: 95,
@@ -434,22 +543,13 @@ const styles = StyleSheet.create({
   },
   semesterButton: {
     borderWidth: 1,
-    borderColor: '#DDDDDD',
     borderRadius: 20,
     paddingVertical: 9,
     paddingHorizontal: 14,
     marginBottom: 2,
   },
-  semesterSelected: {
-    backgroundColor: '#222222',
-    borderColor: '#222222',
-  },
   semesterText: {
     fontSize: 12,
-    color: '#444444',
-  },
-  semesterTextSelected: {
-    color: '#FFFFFF',
   },
   categories: {
     flexDirection: 'row',
@@ -458,45 +558,31 @@ const styles = StyleSheet.create({
   },
   categoryButton: {
     borderWidth: 1,
-    borderColor: '#DDDDDD',
     borderRadius: 20,
     paddingVertical: 9,
     paddingHorizontal: 13,
     marginBottom: 2,
   },
-  categorySelected: {
-    backgroundColor: '#222222',
-    borderColor: '#222222',
-  },
   categoryText: {
     fontSize: 12,
-    color: '#444444',
-  },
-  categoryTextSelected: {
-    color: '#FFFFFF',
   },
   filePicker: {
     borderWidth: 1.5,
-    borderColor: '#BBBBBB',
     borderStyle: 'dashed',
     borderRadius: 12,
     padding: 22,
     alignItems: 'center',
-    backgroundColor: '#FAFAFA',
   },
   plus: {
     fontSize: 35,
-    color: '#222222',
     marginBottom: 5,
   },
   filePickerTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#222222',
   },
   filePickerHint: {
     fontSize: 12,
-    color: '#777777',
     marginTop: 5,
     textAlign: 'center',
   },
@@ -505,7 +591,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: '#DDDDDD',
     borderRadius: 10,
     padding: 13,
     marginTop: 12,
@@ -517,20 +602,16 @@ const styles = StyleSheet.create({
   fileName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#222222',
   },
   fileSize: {
     fontSize: 12,
-    color: '#777777',
     marginTop: 4,
   },
   removeText: {
-    color: '#B42318',
     fontSize: 13,
     fontWeight: '600',
   },
   publishButton: {
-    backgroundColor: '#222222',
     padding: 16,
     borderRadius: 10,
     alignItems: 'center',
@@ -540,7 +621,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   publishText: {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },

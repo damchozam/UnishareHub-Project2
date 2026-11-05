@@ -1,6 +1,5 @@
 
 import { useEffect, useState } from 'react';
-
 import {
   ActivityIndicator,
   Alert,
@@ -13,10 +12,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 import {
   deleteDoc,
   doc,
@@ -24,11 +21,11 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
-
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { auth, db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../context/ThemeContext';
 
 type Resource = {
   id: string;
@@ -53,14 +50,41 @@ const REPORT_REASONS = [
   'Uploaded by mistake',
 ];
 
+function getDocumentFormat(resource: Resource): 'pdf' | 'docx' | 'other' {
+  const fileName = (resource.fileName || '').toLowerCase();
+  const fileType = (resource.fileType || '').toLowerCase();
+
+  if (
+    fileName.endsWith('.pdf') ||
+    fileType === 'pdf' ||
+    fileType.includes('application/pdf')
+  ) {
+    return 'pdf';
+  }
+
+  if (
+    fileName.endsWith('.docx') ||
+    fileType === 'docx' ||
+    fileType.includes(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml'
+    )
+  ) {
+    return 'docx';
+  }
+
+  return 'other';
+}
+
 export default function ResourceDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { colors } = useTheme();
 
   const [resource, setResource] = useState<Resource | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFavorite, setIsFavorite] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [openingFile, setOpeningFile] = useState(false);
 
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
@@ -115,7 +139,6 @@ export default function ResourceDetailsScreen() {
     loadResource();
   }, [id]);
 
-  // Add or remove the resource from Favorites.
   const toggleFavorite = async () => {
     const user = auth.currentUser;
 
@@ -163,7 +186,6 @@ export default function ResourceDetailsScreen() {
     }
   };
 
-  // Open the resource file using a signed Supabase URL.
   const openFile = async () => {
     if (!resource?.storagePath) {
       Alert.alert(
@@ -172,6 +194,10 @@ export default function ResourceDetailsScreen() {
       );
       return;
     }
+
+    if (openingFile) return;
+
+    setOpeningFile(true);
 
     try {
       const { data, error } = await supabase.storage
@@ -182,6 +208,54 @@ export default function ResourceDetailsScreen() {
         throw error || new Error('Could not generate file link.');
       }
 
+      const format = getDocumentFormat(resource);
+
+      // PDF and DOCX are downloaded to a temporary cache location
+      // and opened inside UniShareHub.
+      if (format === 'pdf' || format === 'docx') {
+        const cacheDirectory = FileSystem.cacheDirectory;
+
+        if (!cacheDirectory) {
+          throw new Error('Device cache storage is unavailable.');
+        }
+
+        const viewerDirectory = `${cacheDirectory}unisharehub-viewer/`;
+
+        await FileSystem.makeDirectoryAsync(viewerDirectory, {
+          intermediates: true,
+        }).catch(() => {});
+
+        const safeName = (resource.fileName || `resource.${format}`)
+          .replace(/[<>:"/\\|?*]/g, '_');
+
+        const localUri = `${viewerDirectory}${resource.id}_${safeName}`;
+
+        await FileSystem.deleteAsync(localUri, {
+          idempotent: true,
+        }).catch(() => {});
+
+        const result = await FileSystem.downloadAsync(
+          data.signedUrl,
+          localUri
+        );
+
+        if (result.status !== 200) {
+          throw new Error('The document could not be prepared for viewing.');
+        }
+
+        router.push({
+          pathname: '/document-viewer',
+          params: {
+            uri: result.uri,
+            fileName: resource.fileName || `Resource.${format}`,
+            fileType: resource.fileType || format,
+          },
+        });
+
+        return;
+      }
+
+      // Other file formats retain their previous external-opening behaviour.
       await Linking.openURL(data.signedUrl);
     } catch (error: any) {
       console.error('Open file error:', error);
@@ -190,10 +264,11 @@ export default function ResourceDetailsScreen() {
         'Unable to open file',
         error?.message || 'Please try again.'
       );
+    } finally {
+      setOpeningFile(false);
     }
   };
 
-  // Download the file and save its information in Firestore.
   const downloadFile = async () => {
     const user = auth.currentUser;
 
@@ -269,7 +344,6 @@ export default function ResourceDetailsScreen() {
     }
   };
 
-  // Open the report form.
   const openReportForm = () => {
     const user = auth.currentUser;
 
@@ -294,7 +368,6 @@ export default function ResourceDetailsScreen() {
     setReportModalVisible(true);
   };
 
-  // Submit the report directly without reading the reports collection.
   const submitReport = async () => {
     const user = auth.currentUser;
 
@@ -327,12 +400,9 @@ export default function ResourceDetailsScreen() {
     setSubmittingReport(true);
 
     try {
-      // A fixed document ID allows only one report per user per resource.
       const reportId = `${resource.id}_${user.uid}`;
       const reportRef = doc(db, 'reports', reportId);
 
-      // Do not call getDoc(reportRef).
-      // The Firestore rules intentionally prevent reading reports.
       await setDoc(reportRef, {
         resourceId: resource.id,
         resourceTitle: resource.title || 'Untitled resource',
@@ -366,7 +436,6 @@ export default function ResourceDetailsScreen() {
     }
   };
 
-  // Display an existing formatted size or convert bytes to KB/MB.
   const formatSize = (bytes?: number | string | null) => {
     if (bytes === undefined || bytes === null || bytes === '') {
       return 'Not specified';
@@ -381,11 +450,13 @@ export default function ResourceDetailsScreen() {
       : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const styles = createStyles(colors);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1A2332" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.muted}>
             Loading resource details...
           </Text>
@@ -397,7 +468,10 @@ export default function ResourceDetailsScreen() {
   if (!resource) {
     return (
       <SafeAreaView style={styles.container}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
           <Text style={styles.backText}>‹  Go back</Text>
         </Pressable>
 
@@ -454,10 +528,15 @@ export default function ResourceDetailsScreen() {
           <Pressable
             style={styles.secondaryButton}
             onPress={openFile}
+            disabled={openingFile}
           >
-            <Text style={styles.secondaryButtonText}>
-              Open file ↗
-            </Text>
+            {openingFile ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              <Text style={styles.secondaryButtonText}>
+                Open file ↗
+              </Text>
+            )}
           </Pressable>
         </View>
 
@@ -467,7 +546,7 @@ export default function ResourceDetailsScreen() {
           disabled={savingFavorite}
         >
           {savingFavorite ? (
-            <ActivityIndicator size="small" color="#475569" />
+            <ActivityIndicator size="small" color={colors.secondaryText} />
           ) : (
             <Text
               style={[
@@ -501,21 +580,25 @@ export default function ResourceDetailsScreen() {
           <InfoRow
             label="File name"
             value={resource.fileName || 'Not specified'}
+            colors={colors}
           />
 
           <InfoRow
             label="File type"
             value={resource.fileType || 'Not specified'}
+            colors={colors}
           />
 
           <InfoRow
             label="File size"
             value={formatSize(resource.fileSize)}
+            colors={colors}
           />
 
           <InfoRow
             label="Category"
             value={resource.category || 'Not specified'}
+            colors={colors}
           />
         </View>
 
@@ -600,7 +683,7 @@ export default function ResourceDetailsScreen() {
             <TextInput
               style={styles.reportInput}
               placeholder="Explain the issue if necessary..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.mutedText}
               multiline
               numberOfLines={4}
               textAlignVertical="top"
@@ -648,10 +731,14 @@ export default function ResourceDetailsScreen() {
 function InfoRow({
   label,
   value,
+  colors,
 }: {
   label: string;
   value: string;
+  colors: any;
 }) {
+  const styles = createStyles(colors);
+
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -660,314 +747,317 @@ function InfoRow({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 8,
-    marginBottom: 18,
-  },
-  backText: {
-    fontSize: 15,
-    color: '#1A2332',
-    fontWeight: '600',
-  },
-  hero: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E8ECF1',
-    padding: 23,
-    alignItems: 'center',
-  },
-  heroIcon: {
-    height: 70,
-    width: 70,
-    borderRadius: 20,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 17,
-  },
-  heroSymbol: {
-    fontSize: 34,
-    color: '#1A2332',
-  },
-  category: {
-    color: '#64748B',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  title: {
-    color: '#111827',
-    fontSize: 22,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginTop: 10,
-  },
-  subject: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 7,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  primaryButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 11,
-    backgroundColor: '#1A2332',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  secondaryButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 11,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    color: '#1A2332',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  favoriteButton: {
-    backgroundColor: '#FFF1F2',
-    borderRadius: 11,
-    padding: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  favoriteText: {
-    color: '#475569',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  favoriteActive: {
-    color: '#E05260',
-  },
-  section: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#E8ECF1',
-    padding: 17,
-    marginTop: 17,
-  },
-  sectionTitle: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 13,
-  },
-  description: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 21,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 15,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  infoLabel: {
-    color: '#64748B',
-    fontSize: 12,
-    flex: 1,
-  },
-  infoValue: {
-    color: '#1A2332',
-    fontSize: 12,
-    fontWeight: '600',
-    flex: 1.5,
-    textAlign: 'right',
-  },
-  uploader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#1A2332',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  uploaderName: {
-    color: '#1A2332',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  uploaderCaption: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 3,
-  },
-  muted: {
-    color: '#64748B',
-    marginTop: 10,
-  },
-  heading: {
-    color: '#1A2332',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  reportButton: {
-    marginTop: 18,
-    padding: 15,
-    borderRadius: 11,
-    backgroundColor: '#FFF1F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    alignItems: 'center',
-  },
-  reportButtonText: {
-    color: '#B91C1C',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  footer: {
-    color: '#94A3B8',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 22,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 20,
-    maxHeight: '90%',
-  },
-  modalTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  modalSubtitle: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 7,
-    marginBottom: 15,
-  },
-  reasonOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    gap: 12,
-  },
-  radioOuter: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#64748B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#1A2332',
-  },
-  reasonText: {
-    flex: 1,
-    color: '#1E293B',
-    fontSize: 13,
-  },
-  inputLabel: {
-    color: '#1E293B',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  reportInput: {
-    minHeight: 90,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    padding: 12,
-    color: '#1E293B',
-    fontSize: 13,
-  },
-  characterCount: {
-    color: '#94A3B8',
-    fontSize: 11,
-    textAlign: 'right',
-    marginTop: 5,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  cancelButton: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    color: '#475569',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  submitButton: {
-    flex: 1.5,
-    minHeight: 45,
-    borderRadius: 10,
-    backgroundColor: '#1A2332',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-});
+function createStyles(colors: any) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      padding: 20,
+      paddingBottom: 40,
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    backButton: {
+      alignSelf: 'flex-start',
+      paddingVertical: 8,
+      marginBottom: 18,
+    },
+    backText: {
+      fontSize: 15,
+      color: colors.accent,
+      fontWeight: '600',
+    },
+    hero: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 23,
+      alignItems: 'center',
+    },
+    heroIcon: {
+      height: 70,
+      width: 70,
+      borderRadius: 20,
+      backgroundColor: colors.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 17,
+    },
+    heroSymbol: {
+      fontSize: 34,
+      color: colors.accent,
+    },
+    category: {
+      color: colors.secondaryText,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.2,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 22,
+      fontWeight: '800',
+      textAlign: 'center',
+      marginTop: 10,
+    },
+    subject: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginTop: 7,
+    },
+    actionRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 18,
+    },
+    primaryButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 11,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    primaryButtonText: {
+      color: colors.background,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    secondaryButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 11,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    secondaryButtonText: {
+      color: colors.text,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    favoriteButton: {
+      backgroundColor: colors.soft,
+      borderRadius: 11,
+      padding: 14,
+      alignItems: 'center',
+      marginTop: 10,
+    },
+    favoriteText: {
+      color: colors.secondaryText,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    favoriteActive: {
+      color: '#E05260',
+    },
+    section: {
+      backgroundColor: colors.surface,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 17,
+      marginTop: 17,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '800',
+      marginBottom: 13,
+    },
+    description: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      lineHeight: 21,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 15,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    infoLabel: {
+      color: colors.secondaryText,
+      fontSize: 12,
+      flex: 1,
+    },
+    infoValue: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '600',
+      flex: 1.5,
+      textAlign: 'right',
+    },
+    uploader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    avatar: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarText: {
+      color: colors.background,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    uploaderName: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    uploaderCaption: {
+      color: colors.mutedText,
+      fontSize: 11,
+      marginTop: 3,
+    },
+    muted: {
+      color: colors.secondaryText,
+      marginTop: 10,
+    },
+    heading: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    reportButton: {
+      marginTop: 18,
+      padding: 15,
+      borderRadius: 11,
+      backgroundColor: colors.soft,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+    },
+    reportButtonText: {
+      color: colors.danger,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    footer: {
+      color: colors.mutedText,
+      fontSize: 11,
+      textAlign: 'center',
+      marginTop: 22,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 23, 42, 0.65)',
+      justifyContent: 'center',
+      padding: 20,
+    },
+    modalCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 20,
+      maxHeight: '90%',
+    },
+    modalTitle: {
+      color: colors.text,
+      fontSize: 20,
+      fontWeight: '800',
+    },
+    modalSubtitle: {
+      color: colors.secondaryText,
+      fontSize: 13,
+      marginTop: 7,
+      marginBottom: 15,
+    },
+    reasonOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      gap: 12,
+    },
+    radioOuter: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: colors.secondaryText,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    radioInner: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: colors.accent,
+    },
+    reasonText: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 13,
+    },
+    inputLabel: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+      marginTop: 12,
+      marginBottom: 8,
+    },
+    reportInput: {
+      minHeight: 90,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.input,
+      borderRadius: 10,
+      padding: 12,
+      color: colors.text,
+      fontSize: 13,
+    },
+    characterCount: {
+      color: colors.mutedText,
+      fontSize: 11,
+      textAlign: 'right',
+      marginTop: 5,
+    },
+    modalActions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 18,
+    },
+    cancelButton: {
+      flex: 1,
+      minHeight: 45,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cancelButtonText: {
+      color: colors.secondaryText,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    submitButton: {
+      flex: 1.5,
+      minHeight: 45,
+      borderRadius: 10,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    submitButtonText: {
+      color: colors.background,
+      fontWeight: '700',
+      fontSize: 13,
+    },
+  });
+}

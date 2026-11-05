@@ -18,17 +18,42 @@ import {
 } from 'firebase/firestore';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { File } from 'expo-file-system';
 import { auth, db } from '../../lib/firebase';
 import type { Resource } from '../../components/ResourceCard';
+import { useTheme } from '../../context/ThemeContext';
 
 type DownloadedResource = Resource & {
   localUri?: string;
   downloadedAt?: any;
 };
 
+function getMimeType(fileName: string) {
+  const extension = fileName.split('.').pop()?.toLowerCase();
+
+  const mimeTypes: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+
+    // Use a broader type for DOCX to improve Android app compatibility.
+    docx: '*/*',
+
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    txt: 'text/plain',
+  };
+
+  return mimeTypes[extension || ''] || '*/*';
+}
+
 export default function DownloadsScreen() {
+  const { colors } = useTheme();
+
   const [downloads, setDownloads] = useState<DownloadedResource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const loadDownloads = useCallback(async () => {
     const user = auth.currentUser;
@@ -54,6 +79,7 @@ export default function DownloadsScreen() {
       setDownloads(items);
     } catch (error: any) {
       console.error('Load downloads error:', error);
+
       Alert.alert(
         'Unable to load downloads',
         error?.message || 'Please try again.'
@@ -69,54 +95,82 @@ export default function DownloadsScreen() {
     }, [loadDownloads])
   );
 
-  const openDownloadedFile = async (item: DownloadedResource) => {
-    if (!item.localUri) {
+ const openDownloadedFile = async (item: DownloadedResource) => {
+  if (!item.localUri) {
+    Alert.alert(
+      'File unavailable',
+      'This download does not have a saved file on this device.'
+    );
+    return;
+  }
+
+  if (openingId) return;
+
+  setOpeningId(item.id);
+
+  try {
+    const info = await FileSystem.getInfoAsync(item.localUri);
+
+    if (!info.exists) {
       Alert.alert(
-        'File unavailable',
-        'This download does not have a saved file on this device.'
+        'File not found',
+        'The local file may have been deleted. Please download it again.'
       );
       return;
     }
 
-    try {
-      const info = await FileSystem.getInfoAsync(item.localUri);
+    const originalName = item.fileName || 'resource';
+    const extension = originalName.split('.').pop()?.toLowerCase();
 
-      if (!info.exists) {
-        Alert.alert(
-          'File not found',
-          'The local file may have been deleted. Please download it again.'
-        );
-        return;
-      }
+    // Use Android's native document-opening flow for DOCX.
+    if (extension === 'docx') {
+      const documentFile = new File(item.localUri);
 
-      const available = await Sharing.isAvailableAsync();
-
-      if (!available) {
-        Alert.alert(
-          'Sharing unavailable',
-          'This device cannot open the file through the sharing menu.'
-        );
-        return;
-      }
-
-      await Sharing.shareAsync(item.localUri, {
-        dialogTitle: item.fileName || 'Open downloaded resource',
+      await documentFile.preview({
+        title: originalName,
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
-    } catch (error: any) {
-      console.error('Open downloaded file error:', error);
-      Alert.alert(
-        'Unable to open file',
-        error?.message || 'Please try again.'
-      );
+
+      return;
     }
-  };
+
+    // Keep the existing working sharing behaviour for other files.
+    const available = await Sharing.isAvailableAsync();
+
+    if (!available) {
+      Alert.alert(
+        'Sharing unavailable',
+        'This device cannot open files through the sharing menu.'
+      );
+      return;
+    }
+
+    await Sharing.shareAsync(item.localUri, {
+      dialogTitle: `Open ${originalName}`,
+      mimeType: getMimeType(originalName),
+    });
+  } catch (error: any) {
+    console.error('Open downloaded file error:', error);
+
+    Alert.alert(
+      'Unable to open file',
+      error?.message || 'Please try again.'
+    );
+  } finally {
+    setOpeningId(null);
+  }
+};
 
   const removeDownload = (item: DownloadedResource) => {
     Alert.alert(
       'Remove download?',
       'This will remove the downloaded file from this device and your Downloads list.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
         {
           text: 'Remove',
           style: 'destructive',
@@ -140,6 +194,7 @@ export default function DownloadsScreen() {
               );
             } catch (error: any) {
               console.error('Remove download error:', error);
+
               Alert.alert(
                 'Unable to remove download',
                 error?.message || 'Please try again.'
@@ -152,22 +207,33 @@ export default function DownloadsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Downloads</Text>
-      <Text style={styles.subtitle}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
+      <Text style={[styles.title, { color: colors.text }]}>
+        Downloads
+      </Text>
+
+      <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
         Your saved academic resources, available on this device.
       </Text>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1A2332" />
-          <Text style={styles.loadingText}>Loading downloads...</Text>
+          <ActivityIndicator size="large" color={colors.text} />
+          <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
+            Loading downloads...
+          </Text>
         </View>
       ) : downloads.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.emptySymbol}>↓</Text>
-          <Text style={styles.emptyTitle}>No downloads yet</Text>
-          <Text style={styles.emptyText}>
+          <Text style={[styles.emptySymbol, { color: colors.text }]}>↓</Text>
+
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            No downloads yet
+          </Text>
+
+          <Text style={[styles.emptyText, { color: colors.secondaryText }]}>
             Tap the download icon on any resource to save it here.
           </Text>
         </View>
@@ -176,39 +242,86 @@ export default function DownloadsScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.count}>
+          <Text style={[styles.count, { color: colors.secondaryText }]}>
             {downloads.length} downloaded{' '}
             {downloads.length === 1 ? 'resource' : 'resources'}
           </Text>
 
           {downloads.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.fileIcon}>
-                <Text style={styles.fileIconText}>▤</Text>
+            <View
+              key={item.id}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.fileIcon,
+                  { backgroundColor: colors.soft },
+                ]}
+              >
+                <Text style={[styles.fileIconText, { color: colors.text }]}>
+                  ▤
+                </Text>
               </View>
 
               <View style={styles.info}>
-                <Text style={styles.resourceTitle} numberOfLines={2}>
+                <Text
+                  style={[styles.resourceTitle, { color: colors.text }]}
+                  numberOfLines={2}
+                >
                   {item.title || 'Untitled resource'}
                 </Text>
 
-                <Text style={styles.subject} numberOfLines={1}>
+                <Text
+                  style={[styles.subject, { color: colors.secondaryText }]}
+                  numberOfLines={1}
+                >
                   {item.subject || 'No subject'}
                 </Text>
 
-                <Text style={styles.fileName} numberOfLines={1}>
+                <Text
+                  style={[styles.fileName, { color: colors.mutedText }]}
+                  numberOfLines={1}
+                >
                   {item.fileName || 'Downloaded file'}
                 </Text>
 
-                <Text style={styles.localLabel}>Saved on this device</Text>
+                <Text
+                  style={[styles.localLabel, { color: colors.secondaryText }]}
+                >
+                  Saved on this device
+                </Text>
               </View>
 
               <View style={styles.actions}>
                 <Pressable
-                  style={styles.openButton}
+                  style={[
+                    styles.openButton,
+                    { backgroundColor: colors.accent },
+                  ]}
                   onPress={() => openDownloadedFile(item)}
+                  disabled={openingId !== null}
                 >
-                  <Text style={styles.openText}>Open</Text>
+                  {openingId === item.id ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.background}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.openText,
+                        { color: colors.background },
+                      ]}
+                    >
+                      Open
+                    </Text>
+                  )}
                 </Pressable>
 
                 <Pressable
@@ -229,17 +342,14 @@ export default function DownloadsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
     padding: 20,
   },
   title: {
     fontSize: 25,
     fontWeight: '800',
-    color: '#1A2332',
     marginTop: 12,
   },
   subtitle: {
-    color: '#64748B',
     fontSize: 13,
     marginTop: 8,
   },
@@ -251,23 +361,19 @@ const styles = StyleSheet.create({
   },
   emptySymbol: {
     fontSize: 45,
-    color: '#1A2332',
   },
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1A2332',
     marginTop: 12,
   },
   emptyText: {
     fontSize: 13,
-    color: '#64748B',
     marginTop: 8,
     textAlign: 'center',
   },
   loadingText: {
     fontSize: 13,
-    color: '#64748B',
     marginTop: 10,
   },
   list: {
@@ -276,16 +382,13 @@ const styles = StyleSheet.create({
     gap: 11,
   },
   count: {
-    color: '#64748B',
     fontSize: 12,
     marginBottom: 3,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
     borderRadius: 12,
     padding: 12,
   },
@@ -293,35 +396,29 @@ const styles = StyleSheet.create({
     width: 43,
     height: 43,
     borderRadius: 10,
-    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
   fileIconText: {
     fontSize: 22,
-    color: '#1A2332',
   },
   info: {
     flex: 1,
     marginLeft: 12,
   },
   resourceTitle: {
-    color: '#0F172A',
     fontSize: 14,
     fontWeight: '700',
   },
   subject: {
-    color: '#475569',
     fontSize: 12,
     marginTop: 3,
   },
   fileName: {
-    color: '#94A3B8',
     fontSize: 10,
     marginTop: 4,
   },
   localLabel: {
-    color: '#64748B',
     fontSize: 10,
     marginTop: 4,
   },
@@ -331,13 +428,15 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   openButton: {
-    backgroundColor: '#1A2332',
+    minWidth: 48,
+    minHeight: 31,
     borderRadius: 7,
     paddingHorizontal: 10,
     paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   openText: {
-    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
   },

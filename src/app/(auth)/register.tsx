@@ -1,4 +1,3 @@
-
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -20,15 +19,18 @@ import {
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-
-const NAVY = '#1A2332';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function RegisterScreen() {
+  const { colors } = useTheme();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const styles = createStyles(colors);
 
   async function handleRegister() {
     const cleanName = name.trim();
@@ -77,6 +79,7 @@ export default function RegisterScreen() {
         role: 'student',
         createdAt: serverTimestamp(),
       });
+
       console.log('FIRESTORE PROFILE SAVED:', credential.user.uid);
 
       Alert.alert('Account created', 'Welcome to UniShareHub!', [
@@ -145,7 +148,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="Enter your full name"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.mutedText}
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
@@ -155,7 +158,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="e.g. damcho.cst@rub.edu.bt"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.mutedText}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -167,7 +170,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="At least 8 characters"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.mutedText}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -178,7 +181,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="Re-enter your password"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.mutedText}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
@@ -191,7 +194,7 @@ export default function RegisterScreen() {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={colors.background} />
               ) : (
                 <Text style={styles.buttonText}>Create Account</Text>
               )}
@@ -210,35 +213,105 @@ export default function RegisterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F8FAFC' },
-  container: { flexGrow: 1, padding: 24, paddingTop: 20, paddingBottom: 28 },
-  back: { color: NAVY, fontSize: 14, fontWeight: '600', marginBottom: 30 },
-  logo: {
-    width: 58, height: 58, borderRadius: 16, backgroundColor: NAVY,
-    alignSelf: 'center', justifyContent: 'center', alignItems: 'center',
-  },
-  logoText: { color: '#FFFFFF', fontSize: 32 },
-  brand: {
-    color: NAVY, fontSize: 15, fontWeight: '800',
-    letterSpacing: 2, textAlign: 'center', marginTop: 12,
-  },
-  title: { color: '#0F172A', fontSize: 27, fontWeight: '700', marginTop: 36 },
-  subtitle: { color: '#475569', fontSize: 14, marginTop: 8, marginBottom: 25 },
-  form: { gap: 9 },
-  label: { color: '#0F172A', fontSize: 14, fontWeight: '600' },
-  input: {
-    height: 49, borderWidth: 1, borderColor: '#E2E8F0',
-    borderRadius: 9, backgroundColor: '#FFFFFF', paddingHorizontal: 14,
-    fontSize: 14, marginBottom: 10, color: '#0F172A',
-  },
-  button: {
-    height: 50, backgroundColor: NAVY, borderRadius: 9,
-    justifyContent: 'center', alignItems: 'center', marginTop: 12,
-  },
-  disabledButton: { opacity: 0.65 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  footerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
-  footerText: { color: '#475569', fontSize: 13 },
-  footerLink: { color: NAVY, fontSize: 13, fontWeight: '700' },
-});
+function createStyles(colors: any) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      paddingTop: 20,
+      paddingBottom: 28,
+    },
+    back: {
+      color: colors.accent,
+      fontSize: 14,
+      fontWeight: '600',
+      marginBottom: 30,
+    },
+    logo: {
+      width: 58,
+      height: 58,
+      borderRadius: 16,
+      backgroundColor: colors.accent,
+      alignSelf: 'center',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    logoText: {
+      color: colors.background,
+      fontSize: 32,
+    },
+    brand: {
+      color: colors.accent,
+      fontSize: 15,
+      fontWeight: '800',
+      letterSpacing: 2,
+      textAlign: 'center',
+      marginTop: 12,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 27,
+      fontWeight: '700',
+      marginTop: 36,
+    },
+    subtitle: {
+      color: colors.secondaryText,
+      fontSize: 14,
+      marginTop: 8,
+      marginBottom: 25,
+    },
+    form: {
+      gap: 9,
+    },
+    label: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    input: {
+      height: 49,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 9,
+      backgroundColor: colors.input,
+      paddingHorizontal: 14,
+      fontSize: 14,
+      marginBottom: 10,
+      color: colors.text,
+    },
+    button: {
+      height: 50,
+      backgroundColor: colors.accent,
+      borderRadius: 9,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 12,
+    },
+    disabledButton: {
+      opacity: 0.65,
+    },
+    buttonText: {
+      color: colors.background,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    footerRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginTop: 28,
+    },
+    footerText: {
+      color: colors.secondaryText,
+      fontSize: 13,
+    },
+    footerLink: {
+      color: colors.accent,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+  });
+}

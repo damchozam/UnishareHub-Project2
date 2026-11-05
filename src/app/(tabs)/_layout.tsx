@@ -1,6 +1,6 @@
 
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Text, type ColorValue } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 
 function TabIcon({
@@ -8,7 +8,7 @@ function TabIcon({
   color,
 }: {
   symbol: string;
-  color: string;
+  color: ColorValue;
 }) {
   return (
     <Text style={{ color, fontSize: 23, fontWeight: '500' }}>
@@ -47,7 +47,7 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="⌂" color={color} />
+            <TabIcon symbol="⌂" color={color ?? colors.accent} />
           ),
         }}
       />
@@ -57,7 +57,7 @@ export default function TabLayout() {
         options={{
           title: 'Search',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="⌕" color={color} />
+            <TabIcon symbol="⌕" color={color ?? colors.accent} />
           ),
         }}
       />
@@ -67,7 +67,7 @@ export default function TabLayout() {
         options={{
           title: 'Upload',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="＋" color={color} />
+            <TabIcon symbol="＋" color={color ?? colors.accent} />
           ),
         }}
       />
@@ -77,7 +77,7 @@ export default function TabLayout() {
         options={{
           title: 'Favorites',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="♡" color={color} />
+            <TabIcon symbol="♡" color={color ?? colors.accent} />
           ),
         }}
       />
@@ -87,7 +87,7 @@ export default function TabLayout() {
         options={{
           title: 'Downloads',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="↓" color={color} />
+            <TabIcon symbol="↓" color={color ?? colors.accent} />
           ),
         }}
       />
@@ -97,12 +97,11 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
-            <TabIcon symbol="○" color={color} />
+            <TabIcon symbol="○" color={color ?? colors.accent} />
           ),
         }}
       />
 
-      {/* Notifications is accessed through the bell on Home */}
       <Tabs.Screen
         name="notifications"
         options={{

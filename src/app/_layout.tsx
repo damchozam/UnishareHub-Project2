@@ -8,10 +8,7 @@ function AppNavigation() {
 
   return (
     <>
-      <StatusBar
-        style={isDark ? 'light' : 'dark'}
-        backgroundColor={colors.background}
-      />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <Stack
         screenOptions={{
@@ -26,6 +23,7 @@ function AppNavigation() {
         <Stack.Screen name="(auth)/register" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="resource-details" />
+        <Stack.Screen name="document-viewer" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="my-uploads" />
       </Stack>
